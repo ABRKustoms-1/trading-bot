@@ -1,0 +1,63 @@
+# trading-bot
+
+A trading bot built on [TradingAgents](https://github.com/TauricResearch/TradingAgents),
+a multi-agent LLM framework where analyst, researcher, trader and risk agents debate
+a ticker and produce a buy/hold/sell decision.
+
+This repo installs TradingAgents as a pinned dependency (see `requirements.txt`)
+instead of copying its source.
+
+## Setup
+
+Requires Python 3.11+.
+
+**Windows (PowerShell)**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
+```
+
+If PowerShell refuses to run `Activate.ps1`, run
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+
+**macOS / Linux**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Then open `.env` and fill in the API key for at least one LLM provider. The default
+provider is OpenAI (`OPENAI_API_KEY`); to use another, set
+`TRADINGAGENTS_LLM_PROVIDER` and the two model variables, e.g. for Claude:
+
+```
+ANTHROPIC_API_KEY=...
+TRADINGAGENTS_LLM_PROVIDER=anthropic
+TRADINGAGENTS_DEEP_THINK_LLM=claude-opus-5-5
+TRADINGAGENTS_QUICK_THINK_LLM=claude-sonnet-5-5
+```
+
+## Usage
+
+Interactive CLI (pick ticker, date, provider, depth):
+
+```
+tradingagents
+```
+
+Scripted run for one ticker (date defaults to today):
+
+```
+python run.py NVDA
+python run.py AAPL 2026-09-01
+```
+
+Reports are saved under `~/.tradingagents` unless `TRADINGAGENTS_RESULTS_DIR` is set.
+
+TradingAgents is a research framework. Its output is not financial advice.
