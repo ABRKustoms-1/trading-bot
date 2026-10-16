@@ -2,12 +2,14 @@
 
 Usage: python serve_lab.py [PORT]   (default 8000), then open http://localhost:8000
 
-The page loads every price CSV in data/nq/ automatically, and its
-"Refresh data" button re-runs fetch_nq.py to download the latest bars.
+The page loads every price CSV in data/nq/ automatically, its "Refresh data"
+button re-runs fetch_nq.py to download the latest bars, and Pine Script
+strategies you add in the page are saved as strategies/*.pine.
 Only listens on localhost.
 """
 
 import json
+import re
 import subprocess
 import sys
 import webbrowser
@@ -17,6 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 PAGE = ROOT / "lab" / "nq_strategy_lab.html"
 DATA = ROOT / "data" / "nq"
+STRATEGIES = ROOT / "strategies"
+SAFE_NAME = re.compile(r"^[a-z0-9_-]{1,80}$")
 # Show daily NQ first, then other daily files, then intraday from slowest to fastest.
 ORDER = ["nq_daily", "ndx_daily", "qqq_daily", "nq_1h", "nq_5m", "nq_1m"]
 
@@ -55,6 +59,11 @@ class Handler(BaseHTTPRequestHandler):
                    '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
                    f"</head><body>{html}</body></html>")
             return self._send(200, doc.encode(), "text/html; charset=utf-8")
+        if self.path == "/pine.js":
+            return self._send(200, (ROOT / "lab" / "pine.js").read_bytes(), "text/javascript; charset=utf-8")
+        if self.path == "/api/strategies":
+            files = sorted(STRATEGIES.glob("*.pine")) if STRATEGIES.is_dir() else []
+            return self._json([{"id": f"pine:{f.stem}", "code": f.read_text(encoding="utf-8")} for f in files])
         if self.path == "/api/datasets":
             return self._json([{"name": f.name, "size": f.stat().st_size, "modified": f.stat().st_mtime} for f in price_files()])
         if self.path.startswith("/api/data/"):
@@ -66,6 +75,17 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
     def do_POST(self) -> None:
+        if self.path == "/api/strategies":
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                name, code = str(body["id"]).removeprefix("pine:"), str(body["code"])
+            except (ValueError, KeyError):
+                return self._json({"error": "expected JSON with id and code"}, 400)
+            if not SAFE_NAME.match(name):
+                return self._json({"error": f"bad strategy name {name!r}"}, 400)
+            STRATEGIES.mkdir(exist_ok=True)
+            (STRATEGIES / f"{name}.pine").write_text(code, encoding="utf-8")
+            return self._json({"ok": True, "file": f"strategies/{name}.pine"})
         if self.path != "/api/refresh":
             return self._json({"error": "not found"}, 404)
         years = 10
@@ -73,6 +93,13 @@ class Handler(BaseHTTPRequestHandler):
                               capture_output=True, text=True, timeout=900)
         self._json({"ok": proc.returncode == 0, "output": (proc.stdout + proc.stderr)[-4000:]},
                    200 if proc.returncode == 0 else 500)
+
+    def do_DELETE(self) -> None:
+        name = self.path.removeprefix("/api/strategies/")
+        if not self.path.startswith("/api/strategies/") or not SAFE_NAME.match(name):
+            return self._json({"error": "not found"}, 404)
+        (STRATEGIES / f"{name}.pine").unlink(missing_ok=True)
+        self._json({"ok": True})
 
     def log_message(self, fmt, *args) -> None:
         sys.stderr.write("  " + fmt % args + "\n")

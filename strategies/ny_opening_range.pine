@@ -1,0 +1,39 @@
+//@version=5
+// Intraday only: load 5-minute or 1-minute data.
+strategy("NY Opening Range Breakout", overlay=true)
+
+rangeSession = input.session("0930-0945", "Opening range (NY time)")
+tradeSession = input.session("0945-1555", "Trading window (NY time)")
+stopPts      = input.float(40, "Stop (points)")
+targetPts    = input.float(80, "Target (points)")
+
+inRange = not na(time(timeframe.period, rangeSession, "America/New_York"))
+inTrade = not na(time(timeframe.period, tradeSession, "America/New_York"))
+
+var float orHigh = na
+var float orLow = na
+var bool traded = false
+if inRange and not inRange[1]
+    orHigh := high
+    orLow := low
+    traded := false
+else if inRange
+    orHigh := math.max(orHigh, high)
+    orLow := math.min(orLow, low)
+
+plot(inTrade ? orHigh : na, "Range high")
+plot(inTrade ? orLow : na, "Range low")
+
+if inTrade and not traded and strategy.position_size == 0
+    if close > orHigh
+        strategy.entry("Long", strategy.long)
+        traded := true
+    else if close < orLow
+        strategy.entry("Short", strategy.short)
+        traded := true
+
+// profit= and loss= are in ticks; NQ ticks are 0.25 points.
+strategy.exit("Long exit", "Long", profit=targetPts / syminfo.mintick, loss=stopPts / syminfo.mintick)
+strategy.exit("Short exit", "Short", profit=targetPts / syminfo.mintick, loss=stopPts / syminfo.mintick)
+if not inTrade and not inRange
+    strategy.close_all()

@@ -1,0 +1,14 @@
+//@version=5
+strategy("Supertrend", overlay=true)
+
+atrPeriod = input.int(10, "ATR period")
+factor    = input.float(3.0, "Factor", step=0.1)
+
+[st, dir] = ta.supertrend(factor, atrPeriod)
+plot(st, "Supertrend")
+
+// dir is -1 in an uptrend and 1 in a downtrend.
+if ta.change(dir) < 0
+    strategy.entry("Long", strategy.long)
+if ta.change(dir) > 0
+    strategy.entry("Short", strategy.short)

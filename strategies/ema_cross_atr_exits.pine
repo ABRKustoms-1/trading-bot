@@ -1,0 +1,25 @@
+//@version=5
+strategy("EMA Cross + ATR Exits", overlay=true)
+
+fastLen    = input.int(9, "Fast EMA")
+slowLen    = input.int(21, "Slow EMA")
+atrLen     = input.int(14, "ATR length")
+stopMult   = input.float(1.5, "Stop (x ATR)", step=0.1)
+targetMult = input.float(3.0, "Target (x ATR)", step=0.1)
+
+fast = ta.ema(close, fastLen)
+slow = ta.ema(close, slowLen)
+atr  = ta.atr(atrLen)
+plot(fast, "Fast EMA")
+plot(slow, "Slow EMA")
+
+if ta.crossover(fast, slow)
+    strategy.entry("Long", strategy.long)
+if ta.crossunder(fast, slow)
+    strategy.entry("Short", strategy.short)
+
+// Stops and targets measured from the average entry price.
+if strategy.position_size > 0
+    strategy.exit("Long exit", "Long", stop=strategy.position_avg_price - stopMult * atr, limit=strategy.position_avg_price + targetMult * atr)
+if strategy.position_size < 0
+    strategy.exit("Short exit", "Short", stop=strategy.position_avg_price + stopMult * atr, limit=strategy.position_avg_price - targetMult * atr)

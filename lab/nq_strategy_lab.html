@@ -7,7 +7,7 @@
 :root {
   --bg: #f4f6f9; --panel: #ffffff; --field: #f1f3f6; --ink: #12161c; --ink-2: #4b5360; --muted: #7b8491;
   --line: #e1e5eb; --grid: #edf0f4; --accent: #2456d3; --accent-ink: #ffffff; --accent-soft: #e6edfd;
-  --series: #2a78d6; --price: #1d232c; --long: #0f8a5f; --short: #d4552b;
+  --series: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #6250d6; --price: #1d232c; --long: #0f8a5f; --short: #d4552b;
   --gain: #12805c; --loss: #c4352f; --warn-bg: #fff4dc; --warn-ink: #7a5300;
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -15,12 +15,12 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0f1216; --panel: #171b21; --field: #1f242c; --ink: #edf0f4; --ink-2: #b6bdc8; --muted: #8a929e;
   --line: #29303a; --grid: #222831; --accent: #5b8cf0; --accent-ink: #0b1020; --accent-soft: #1d2a45;
-  --series: #3987e5; --price: #e6e9ee; --long: #2fbf8a; --short: #ef7a4a;
+  --series: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #9085e9; --price: #e6e9ee; --long: #2fbf8a; --short: #ef7a4a;
   --gain: #3ccf94; --loss: #f06b66; --warn-bg: #3a2d10; --warn-ink: #f3cf7a; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #0f1216; --panel: #171b21; --field: #1f242c; --ink: #edf0f4; --ink-2: #b6bdc8; --muted: #8a929e;
   --line: #29303a; --grid: #222831; --accent: #5b8cf0; --accent-ink: #0b1020; --accent-soft: #1d2a45;
-  --series: #3987e5; --price: #e6e9ee; --long: #2fbf8a; --short: #ef7a4a;
+  --series: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #9085e9; --price: #e6e9ee; --long: #2fbf8a; --short: #ef7a4a;
   --gain: #3ccf94; --loss: #f06b66; --warn-bg: #3a2d10; --warn-ink: #f3cf7a; color-scheme: dark }
 
 * { box-sizing: border-box }
@@ -42,7 +42,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
 .pair label { display: flex; flex-direction: column; gap: 4px; color: var(--ink-2); font-size: 12px }
 input, select, button { font: inherit; color: inherit }
-input[type=number], input[type=date], select { width: 100%; min-width: 0; background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font-family: var(--mono); font-size: 13px }
+input[type=number], input[type=date], input[type=text], select { width: 100%; min-width: 0; background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font-family: var(--mono); font-size: 13px }
 select { font-family: var(--sans); font-size: 14px }
 input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
 .hint { margin: 0; color: var(--muted); font-size: 12.5px }
@@ -93,6 +93,21 @@ tr.cur td { background: var(--accent-soft) }
 td.na { color: var(--muted); font-family: var(--sans) }
 .pill { display: inline-block; padding: 1px 7px; border-radius: 99px; font: 500 11.5px var(--sans); border: 1px solid currentColor }
 .more { margin-top: 10px }
+dialog.pine { width: min(920px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink) }
+dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
+.pine form { display: flex; flex-direction: column; gap: 12px; padding: 18px }
+.pine .head { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap }
+.pine h3 { margin: 0; font: 600 17px/1.3 var(--sans) }
+.pine .head select { width: auto; max-width: 100% }
+.pine textarea { width: 100%; height: min(52vh, 560px); resize: vertical; background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font: 13px/1.55 var(--mono); tab-size: 4; white-space: pre; overflow: auto }
+.pine textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+.pine .err { background: color-mix(in srgb, var(--loss) 12%, var(--panel)); color: var(--loss); border-radius: 8px; padding: 9px 12px; font: 13px/1.45 var(--mono); white-space: pre-wrap }
+.pine details { color: var(--ink-2); font-size: 13px }
+.pine details summary { cursor: pointer; color: var(--accent) }
+.pine details p { margin: 8px 0 0; max-width: 80ch }
+.pine details code { font: 12px var(--mono); color: var(--ink) }
+.pine .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap }
+.btn.danger { color: var(--loss); border-color: color-mix(in srgb, var(--loss) 40%, var(--line)) }
 .drop { position: fixed; inset: 0; background: color-mix(in srgb, var(--accent) 18%, transparent); border: 3px dashed var(--accent); display: grid; place-items: center; font: 600 20px var(--sans); color: var(--accent); z-index: 20 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important } }
 </style>
@@ -122,6 +137,10 @@ td.na { color: var(--muted); font-family: var(--sans) }
     <div class="sec">
       <h2>Strategy</h2>
       <select id="strat" aria-label="Strategy"></select>
+      <div class="pair">
+        <button class="btn ghost" id="pineNew" type="button">+ Pine Script</button>
+        <button class="btn ghost" id="pineEdit" type="button" hidden>Edit script</button>
+      </div>
       <p class="hint" id="desc"></p>
       <div id="params" style="display:flex;flex-direction:column;gap:8px"></div>
       <div class="seg" role="group" aria-label="Direction">
@@ -184,6 +203,29 @@ td.na { color: var(--muted); font-family: var(--sans) }
 </div>
 <div class="drop" id="drop" hidden>Drop CSV files to load them</div>
 
+<dialog class="pine" id="pineDlg" aria-labelledby="pineTitle">
+  <form id="pineForm">
+    <div class="head">
+      <h3 id="pineTitle">New Pine Script strategy</h3>
+      <select id="pineExample" aria-label="Start from an example"></select>
+    </div>
+    <textarea id="pineCode" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Pine Script code"></textarea>
+    <div class="err" id="pineErr" hidden></div>
+    <details>
+      <summary>What the lab can run</summary>
+      <p>Paste a TradingView <code>strategy()</code> script (Pine v5 or v6). Supported: <code>input.*</code> (they become settings), variables, <code>var</code>, <code>if</code>/<code>else</code>, <code>switch</code>, <code>for</code>/<code>while</code>, your own functions, tuples, history <code>x[1]</code>, <code>ta.*</code> (sma, ema, rma, wma, hma, vwma, alma, rsi, atr, stdev, highest, lowest, crossover, crossunder, change, macd, bb, kc, stoch, cci, dmi, supertrend, vwap, pivothigh/low, valuewhen, barssince, linreg and more), <code>math.*</code>, <code>time()</code> sessions, <code>hour</code>/<code>minute</code>, and <code>strategy.entry/exit/close/close_all/cancel</code> with stops, limits, profit/loss ticks, trailing stops, partial exits and pyramiding.</p>
+      <p>Not supported: arrays, matrices, maps, drawings (they're skipped), and <code>request.security()</code> on another timeframe. Orders placed on a bar fill at the next bar's open, like TradingView. Hours use exchange time (Chicago) unless you pass a time zone. Position size, commission, slippage and capital come from the lab's settings unless the script passes <code>qty</code>.</p>
+    </details>
+    <div class="actions">
+      <button type="button" class="btn ghost danger" id="pineDelete" hidden>Delete strategy</button>
+      <span style="flex:1"></span>
+      <button type="button" class="btn ghost" id="pineCancel">Cancel</button>
+      <button type="submit" class="btn" id="pineSave">Test &amp; save</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="pine.js"></script>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
@@ -573,24 +615,39 @@ function setRange() { const b = S.datasets[S.ds]; S.from = b.day[0]; S.to = b.da
 
 function fillStrategy() {
   const b = S.datasets[S.ds];
-  $("#strat").innerHTML = STRATS.map(s => `<option value="${s.id}">${esc(s.name)}${s.intraday && !b.intraday ? " (intraday data)" : ""}</option>`).join("");
+  const opt = s => `<option value="${esc(s.id)}">${esc(s.name)}${s.intraday && !b.intraday ? " (intraday data)" : ""}</option>`;
+  const mine = STRATS.filter(s => s.code);
+  $("#strat").innerHTML = `<optgroup label="Built in">${STRATS.filter(s => !s.code).map(opt).join("")}</optgroup>` + (mine.length ? `<optgroup label="Your Pine Script">${mine.map(opt).join("")}</optgroup>` : "");
   $("#strat").value = S.strat;
   const s = byId[S.strat], p = P(S.strat);
-  $("#desc").textContent = s.desc + (b.intraday && !s.intraday && s.params.length ? " Lookbacks count bars, so on intraday data they are much shorter in time." : "");
-  $("#params").innerHTML = s.params.map(q => `<div class="row"><label for="p-${s.id}-${q.id}">${esc(q.label)}</label>${q.options
-    ? `<select id="p-${s.id}-${q.id}" data-p="${q.id}">${q.options.map(o => `<option${o === p[q.id] ? " selected" : ""}>${o}</option>`).join("")}</select>`
-    : `<input type="number" id="p-${s.id}-${q.id}" data-p="${q.id}" value="${p[q.id]}" step="${q.step || 1}" min="0">`}</div>`).join("");
+  $("#desc").textContent = s.desc + (b.intraday && !s.intraday && !s.code && s.params.length ? " Lookbacks count bars, so on intraday data they are much shorter in time." : "");
+  $("#pineEdit").hidden = !s.code;
+  $("#params").innerHTML = s.params.map(q => { const id = esc(`p-${s.id}-${q.id}`); return `<div class="row"><label for="${id}">${esc(q.label)}</label>${q.options
+    ? `<select id="${id}" data-p="${q.id}">${q.options.map(o => `<option${String(o) === String(p[q.id]) ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+    : q.text ? `<input type="text" id="${id}" data-p="${q.id}" data-kind="text" value="${esc(p[q.id])}">`
+    : `<input type="number" id="${id}" data-p="${q.id}" value="${p[q.id]}" step="${q.step || 1}"${s.code ? "" : ' min="0"'}>`}</div>`; }).join("");
   document.querySelectorAll(".seg button").forEach(btn => btn.setAttribute("aria-pressed", btn.dataset.dir === S.dir));
 }
 
 function fillAccount() { for (const k of ["stop", "tp", "qty", "comm", "slip", "capital"]) $("#" + k).value = S[k]; $("#contract").value = S.contract; $("#rth").checked = S.rth; }
 
+const PLOT_COLORS = ["--series", "--s2", "--s3", "--s4"];
 function runOne(b, strat, params, cfg) {
+  if (strat.code) {
+    if (strat.error) throw new Error(strat.error);
+    const r = Pine.run(strat.pine, b, params, { ...cfg, dir: S.dir, rth: S.rth });
+    const ov = r.plots.slice(0, 4).map((p, k) => ({ label: p.label, data: p.data, color: PLOT_COLORS[k] }));
+    return { r, ov, st: stats(b, r, cfg.capital) };
+  }
   let { sig, ov } = strat.signal(b, params, S.dir);
   sig = Int8Array.from(sig, v => S.dir === "long" ? Math.max(0, v) : S.dir === "short" ? Math.min(0, v) : v);
   if (S.rth && b.intraday) for (let i = 0; i < sig.length; i++) if (b.mod[i] < RTH_OPEN || b.mod[i] >= RTH_FLAT) sig[i] = 0;
   const r = backtest(b, sig, cfg);
   return { r, ov, st: stats(b, r, cfg.capital) };
+}
+
+function cfgNow() {
+  return { pv: PV[S.contract], qty: Math.max(1, Math.round(S.qty) || 1), cps: (+S.comm || 0) + (+S.slip || 0) * TICK * PV[S.contract], stop: (+S.stop || 0) / 100, tp: (+S.tp || 0) / 100, capital: Math.max(1, +S.capital || 250000) };
 }
 
 let pending = 0;
@@ -605,10 +662,15 @@ function render() {
   else notice.hidden = true;
   if (b.c.length < 30) { notice.hidden = false; notice.textContent = "Fewer than 30 bars in this date range. Widen From / To."; return; }
 
-  const cfg = { pv: PV[S.contract], qty: Math.max(1, Math.round(S.qty) || 1), cps: (+S.comm || 0) + (+S.slip || 0) * TICK * PV[S.contract], stop: (+S.stop || 0) / 100, tp: (+S.tp || 0) / 100, capital: Math.max(1, +S.capital || 250000) };
-  const strat = byId[S.strat];
-  if (strat.intraday && !b.intraday) { notice.hidden = false; notice.innerHTML = `<b>${esc(strat.name)} needs intraday bars.</b> Pick a 5-minute or hourly dataset in Data.`; }
-  const cur = strat.intraday && !b.intraday ? runOne(b, byId.bh, {}, cfg) : runOne(b, strat, P(S.strat), cfg);
+  const cfg = cfgNow(), strat = byId[S.strat];
+  let cur;
+  if (strat.intraday && !b.intraday) { notice.hidden = false; notice.innerHTML = `<b>${esc(strat.name)} needs intraday bars.</b> Pick a 5-minute or hourly dataset in Data.`; cur = runOne(b, byId.bh, {}, cfg); }
+  else try { cur = runOne(b, strat, P(S.strat), cfg); }
+  catch (e) {
+    notice.hidden = false;
+    notice.innerHTML = `<b>${esc(strat.name)} stopped with an error.</b> ${esc(e.message)} <button class="link" type="button" data-fix="1">Open the script</button>. Showing buy &amp; hold meanwhile.`;
+    cur = runOne(b, byId.bh, {}, cfg);
+  }
   const bench = backtest(b, new Int8Array(b.c.length).fill(1), { ...cfg, stop: 0, tp: 0 });
 
   renderTiles(cur.st, cur.r, cfg);
@@ -634,9 +696,8 @@ function renderTiles(st, r, cfg) {
 }
 
 function renderPrice(b, cur) {
-  const ovColors = [cssv("--series"), cssv("--series"), cssv("--series")];
   const series = [{ data: b.c, color: cssv("--price"), width: 1.4, label: "Close" }];
-  cur.ov.forEach((o, k) => series.push({ data: o.data, color: ovColors[k], dash: o.dash, width: o.dash ? 1.2 : 1.6, label: o.label, noDot: true }));
+  cur.ov.forEach(o => series.push({ data: o.data, color: cssv(o.color || "--series"), dash: o.dash, width: o.dash ? 1.2 : 1.6, label: o.label, noDot: true }));
   const T = cur.r.trades, show = T.length <= 300, markers = [];
   if (show) for (const t of T) {
     markers.push({ i: t.ei, v: t.ep, shape: t.side > 0 ? "up" : "down", color: t.side > 0 ? cssv("--long") : cssv("--short") });
@@ -644,7 +705,7 @@ function renderPrice(b, cur) {
   }
   $("#priceSub").textContent = show ? "Up triangles are long entries, down triangles short entries, dots exits. Markers hide above 300 trades." : `${T.length.toLocaleString("en-US")} trades: markers hidden above 300. Narrow the date range to see them.`;
   const leg = [`<span><i style="color:var(--price)"></i>Close</span>`];
-  cur.ov.forEach(o => o.label && leg.push(`<span><i class="${o.dash ? "dash" : ""}" style="color:var(--series)"></i>${esc(o.label)}</span>`));
+  cur.ov.forEach(o => o.label && leg.push(`<span><i class="${o.dash ? "dash" : ""}" style="color:var(${o.color || "--series"})"></i>${esc(o.label)}</span>`));
   if (show && T.length) { leg.push(`<span><i class="tri" style="color:var(--long)"></i>Long entry</span>`); if (T.some(t => t.side < 0)) leg.push(`<span><i class="tri" style="color:var(--short);transform:rotate(180deg)"></i>Short entry</span>`); leg.push(`<span><i class="dot" style="background:var(--ink-2)"></i>Exit</span>`); }
   $("#priceLegend").innerHTML = leg.join("");
   const held = cur.r.held;
@@ -663,11 +724,21 @@ function renderEquity(b, cur, bench, cfg) {
     tip: i => `<b>${when(b, i)}</b><br>Below high ${pct(cur.st.dd[i])}` });
 }
 
+const cmpCache = new Map();
 function renderCompare(b, cfg) {
+  if (cmpCache.size > 400) cmpCache.clear();
+  const base = JSON.stringify([S.datasets[S.ds].name, b.c.length, S.from, S.to, S.dir, S.rth, cfg]);
   const rows = STRATS.map(s => {
-    const name = `<button class="link" type="button" data-load="${s.id}">${esc(s.name)}</button>`;
+    const name = `<button class="link" type="button" data-load="${esc(s.id)}">${esc(s.name)}</button>`;
     if (s.intraday && !b.intraday) return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="na" colspan="5">Needs intraday bars</td></tr>`;
-    const { st } = runOne(b, s, s.id === S.strat ? P(s.id) : defaults(s), cfg);
+    const params = s.id === S.strat ? P(s.id) : defaults(s), key = base + s.id + JSON.stringify(params) + (s.code || "");
+    let st = cmpCache.get(key);
+    if (!st) {
+      try { const x = runOne(b, s, params, cfg).st; st = { net: x.net, cagr: x.cagr, mdd: x.mdd, sharpe: x.sharpe, trades: x.trades }; }
+      catch (e) { st = { error: e.message }; }
+      cmpCache.set(key, st);
+    }
+    if (st.error) return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="na" colspan="5" style="white-space:normal">Script error: ${esc(st.error)}</td></tr>`;
     return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="${cls(st.net)}">${usd(st.net, true)}</td><td class="${cls(st.cagr)}">${pct(st.cagr, true)}</td><td class="neg">${pct(st.mdd)}</td><td>${num(st.sharpe)}</td><td>${st.trades}</td></tr>`;
   });
   $("#cmp").innerHTML = `<thead><tr><th>Strategy</th><th>Net P&amp;L</th><th>CAGR</th><th>Max DD</th><th>Sharpe</th><th>Trades</th></tr></thead><tbody>${rows.join("")}</tbody>`;
@@ -689,9 +760,9 @@ function renderYears(b, cur, cfg) {
 function renderTrades(b, r) {
   const T = r.trades.slice().reverse(), lim = S.showAll ? T.length : 100;
   $("#tradeSub").textContent = T.length ? `${T.length.toLocaleString("en-US")} trades, newest first. P&L is after commission and slippage.` : "No trades with these settings.";
-  const why = { stop: "stop", target: "target", signal: "signal", open: "still open" };
+  const why = { stop: "stop", target: "target", signal: "signal", open: "still open", close: "close", reverse: "reversal", session: "session end" };
   $("#trades").innerHTML = `<thead><tr><th>Side</th><th>Entry</th><th>Entry px</th><th>Exit</th><th>Exit px</th><th>Bars</th><th>Exit by</th><th>P&amp;L</th></tr></thead><tbody>` +
-    T.slice(0, lim).map(t => `<tr><td><span class="pill" style="color:var(${t.side > 0 ? "--long" : "--short"})">${t.side > 0 ? "Long" : "Short"}</span></td><td>${when(b, t.ei)}</td><td>${px(t.ep)}</td><td>${when(b, t.xi)}</td><td>${px(t.xp)}</td><td>${t.xi - t.ei}</td><td>${why[t.why]}</td><td class="${cls(t.pnl)}">${usd(t.pnl, true)}</td></tr>`).join("") + "</tbody>";
+    T.slice(0, lim).map(t => `<tr><td><span class="pill" style="color:var(${t.side > 0 ? "--long" : "--short"})">${t.side > 0 ? "Long" : "Short"}</span></td><td>${when(b, t.ei)}</td><td>${px(t.ep)}</td><td>${when(b, t.xi)}</td><td>${px(t.xp)}</td><td>${t.xi - t.ei}</td><td>${why[t.why] || esc(t.why)}</td><td class="${cls(t.pnl)}">${usd(t.pnl, true)}</td></tr>`).join("") + "</tbody>";
   $("#moreTrades").hidden = T.length <= lim;
   $("#moreTrades").textContent = `Show all ${T.length.toLocaleString("en-US")} trades`;
 }
@@ -701,7 +772,7 @@ $("#ds").addEventListener("change", e => { S.ds = +e.target.value; setRange(); f
 $("#from").addEventListener("change", e => { S.from = e.target.value; schedule(); });
 $("#to").addEventListener("change", e => { S.to = e.target.value; schedule(); });
 $("#strat").addEventListener("change", e => { S.strat = e.target.value; S.showAll = false; fillStrategy(); render(); });
-$("#params").addEventListener("input", e => { const k = e.target.dataset.p; if (!k) return; const v = e.target.tagName === "SELECT" ? e.target.value : parseFloat(e.target.value); if (e.target.tagName !== "SELECT" && !isFinite(v)) return; (S.params[S.strat] ||= {})[k] = v; schedule(); });
+$("#params").addEventListener("input", e => { const k = e.target.dataset.p; if (!k) return; const v = e.target.tagName === "SELECT" || e.target.dataset.kind === "text" ? e.target.value : parseFloat(e.target.value); if (typeof v === "number" && !isFinite(v)) return; (S.params[S.strat] ||= {})[k] = v; schedule(); });
 document.querySelectorAll(".seg button").forEach(btn => btn.addEventListener("click", () => { S.dir = btn.dataset.dir; fillStrategy(); render(); }));
 for (const k of ["stop", "tp", "qty", "comm", "slip", "capital"]) $("#" + k).addEventListener("input", e => { S[k] = parseFloat(e.target.value) || 0; schedule(); });
 $("#contract").addEventListener("change", e => { S.contract = e.target.value; render(); });
@@ -734,6 +805,130 @@ new ResizeObserver(() => schedule()).observe($("#priceChart"));
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
+const PINE_EXAMPLES = {
+"ema_cross_atr_exits": "//@version=5\nstrategy(\"EMA Cross + ATR Exits\", overlay=true)\n\nfastLen    = input.int(9, \"Fast EMA\")\nslowLen    = input.int(21, \"Slow EMA\")\natrLen     = input.int(14, \"ATR length\")\nstopMult   = input.float(1.5, \"Stop (x ATR)\", step=0.1)\ntargetMult = input.float(3.0, \"Target (x ATR)\", step=0.1)\n\nfast = ta.ema(close, fastLen)\nslow = ta.ema(close, slowLen)\natr  = ta.atr(atrLen)\nplot(fast, \"Fast EMA\")\nplot(slow, \"Slow EMA\")\n\nif ta.crossover(fast, slow)\n    strategy.entry(\"Long\", strategy.long)\nif ta.crossunder(fast, slow)\n    strategy.entry(\"Short\", strategy.short)\n\n// Stops and targets measured from the average entry price.\nif strategy.position_size > 0\n    strategy.exit(\"Long exit\", \"Long\", stop=strategy.position_avg_price - stopMult * atr, limit=strategy.position_avg_price + targetMult * atr)\nif strategy.position_size < 0\n    strategy.exit(\"Short exit\", \"Short\", stop=strategy.position_avg_price + stopMult * atr, limit=strategy.position_avg_price - targetMult * atr)\n",
+"supertrend": "//@version=5\nstrategy(\"Supertrend\", overlay=true)\n\natrPeriod = input.int(10, \"ATR period\")\nfactor    = input.float(3.0, \"Factor\", step=0.1)\n\n[st, dir] = ta.supertrend(factor, atrPeriod)\nplot(st, \"Supertrend\")\n\n// dir is -1 in an uptrend and 1 in a downtrend.\nif ta.change(dir) < 0\n    strategy.entry(\"Long\", strategy.long)\nif ta.change(dir) > 0\n    strategy.entry(\"Short\", strategy.short)\n",
+"ny_opening_range": "//@version=5\n// Intraday only: load 5-minute or 1-minute data.\nstrategy(\"NY Opening Range Breakout\", overlay=true)\n\nrangeSession = input.session(\"0930-0945\", \"Opening range (NY time)\")\ntradeSession = input.session(\"0945-1555\", \"Trading window (NY time)\")\nstopPts      = input.float(40, \"Stop (points)\")\ntargetPts    = input.float(80, \"Target (points)\")\n\ninRange = not na(time(timeframe.period, rangeSession, \"America/New_York\"))\ninTrade = not na(time(timeframe.period, tradeSession, \"America/New_York\"))\n\nvar float orHigh = na\nvar float orLow = na\nvar bool traded = false\nif inRange and not inRange[1]\n    orHigh := high\n    orLow := low\n    traded := false\nelse if inRange\n    orHigh := math.max(orHigh, high)\n    orLow := math.min(orLow, low)\n\nplot(inTrade ? orHigh : na, \"Range high\")\nplot(inTrade ? orLow : na, \"Range low\")\n\nif inTrade and not traded and strategy.position_size == 0\n    if close > orHigh\n        strategy.entry(\"Long\", strategy.long)\n        traded := true\n    else if close < orLow\n        strategy.entry(\"Short\", strategy.short)\n        traded := true\n\n// profit= and loss= are in ticks; NQ ticks are 0.25 points.\nstrategy.exit(\"Long exit\", \"Long\", profit=targetPts / syminfo.mintick, loss=stopPts / syminfo.mintick)\nstrategy.exit(\"Short exit\", \"Short\", profit=targetPts / syminfo.mintick, loss=stopPts / syminfo.mintick)\nif not inTrade and not inRange\n    strategy.close_all()\n"
+};
+const PINE_TEMPLATE = `//@version=5
+strategy("My strategy", overlay=true)
+
+len = input.int(20, "Length")
+ma = ta.sma(close, len)
+plot(ma, "SMA")
+
+if ta.crossover(close, ma)
+    strategy.entry("Long", strategy.long)
+if ta.crossunder(close, ma)
+    strategy.close("Long")
+`;
+
+// Saved Pine strategies: strategies/*.pine through serve_lab.py, or this browser's storage.
+const pineStore = {
+  backend: false,
+  local() { try { return JSON.parse(localStorage.getItem("nqlab-pine")); } catch (e) { return null; } },
+  setLocal(list) { try { localStorage.setItem("nqlab-pine", JSON.stringify(list)); } catch (e) {} },
+  async load() {
+    if (this.backend) { const r = await fetch("api/strategies", { cache: "no-store" }); if (r.ok) return r.json(); }
+    const list = this.local();
+    if (list) return list;
+    const seeded = Object.entries(PINE_EXAMPLES).map(([k, code]) => ({ id: "pine:" + k, code }));
+    this.setLocal(seeded);
+    return seeded;
+  },
+  async save(rec) {
+    if (this.backend) {
+      const r = await fetch("api/strategies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rec) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+      return;
+    }
+    const list = (this.local() || []).filter(x => x.id !== rec.id);
+    list.push(rec); this.setLocal(list);
+  },
+  async remove(id) {
+    if (this.backend) { await fetch("api/strategies/" + encodeURIComponent(id.slice(5)), { method: "DELETE" }); return; }
+    this.setLocal((this.local() || []).filter(x => x.id !== id));
+  },
+};
+
+function registerPine(rec) {
+  let prog = null, error = null;
+  try { prog = Pine.compile(rec.code); } catch (e) { error = e.message; }
+  const title = prog ? prog.title : ((/strategy\(\s*["']([^"']+)/.exec(rec.code) || [])[1] || rec.id.slice(5));
+  const s = { id: rec.id, name: title, code: rec.code, pine: prog, error, params: prog ? prog.params : [],
+    desc: error ? `This script has an error. ${error}` : `Your Pine Script strategy. Orders fill at the next bar's ${prog.opts.poc ? "close (process_orders_on_close)" : "open, like TradingView"}. Size, costs and capital come from the settings below unless the script passes qty.` };
+  const k = STRATS.findIndex(x => x.id === rec.id);
+  if (k >= 0) STRATS[k] = s; else STRATS.push(s);
+  byId[rec.id] = s;
+}
+
+let editing = null;
+const dlg = $("#pineDlg");
+$("#pineExample").innerHTML = `<option value="">Start from an example…</option><option value="template">Blank template</option>` +
+  Object.keys(PINE_EXAMPLES).map(k => `<option value="${k}">${esc(registerPreviewTitle(PINE_EXAMPLES[k]))}</option>`).join("");
+function registerPreviewTitle(code) { return (/strategy\(\s*["']([^"']+)/.exec(code) || [])[1] || "Example"; }
+function openEditor(id) {
+  editing = id;
+  $("#pineTitle").textContent = id ? "Edit Pine Script strategy" : "New Pine Script strategy";
+  $("#pineCode").value = id ? byId[id].code : PINE_TEMPLATE;
+  $("#pineErr").hidden = true;
+  const del = $("#pineDelete"); del.hidden = !id; del.textContent = "Delete strategy"; delete del.dataset.armed;
+  $("#pineExample").value = "";
+  if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+  $("#pineCode").focus();
+}
+function closeEditor() { if (dlg.close) dlg.close(); else dlg.removeAttribute("open"); }
+function showPineError(e) {
+  const box = $("#pineErr"); box.hidden = false; box.textContent = e.message;
+  if (e.line) {
+    const ta = $("#pineCode"), lines = ta.value.split("\n");
+    const start = lines.slice(0, e.line - 1).reduce((a, l) => a + l.length + 1, 0);
+    ta.focus(); ta.setSelectionRange(start, start + (lines[e.line - 1] || "").length);
+  }
+}
+$("#pineExample").addEventListener("change", e => { const k = e.target.value; if (!k) return; $("#pineCode").value = k === "template" ? PINE_TEMPLATE : PINE_EXAMPLES[k]; $("#pineErr").hidden = true; });
+$("#pineCode").addEventListener("keydown", e => {
+  if (e.key !== "Tab" || e.shiftKey) return;
+  e.preventDefault();
+  const ta = e.target, a = ta.selectionStart;
+  ta.setRangeText("    ", a, ta.selectionEnd, "end");
+});
+$("#pineForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const code = $("#pineCode").value, btn = $("#pineSave");
+  let prog;
+  try {
+    prog = Pine.compile(code);
+    Pine.run(prog, sliceBars(S.datasets[S.ds], S.from, S.to), {}, { ...cfgNow(), dir: S.dir, rth: S.rth });
+  } catch (err) { showPineError(err); return; }
+  let id = editing;
+  if (!id) {
+    const base = "pine:" + (prog.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "strategy");
+    id = base; for (let k = 2; byId[id]; k++) id = `${base}_${k}`;
+  }
+  btn.disabled = true;
+  try { await pineStore.save({ id, code }); }
+  catch (err) { showPineError(new Error("Couldn't save the script: " + err.message)); btn.disabled = false; return; }
+  btn.disabled = false;
+  registerPine({ id, code });
+  S.strat = id; S.showAll = false;
+  closeEditor(); fillStrategy(); render();
+});
+$("#pineCancel").addEventListener("click", closeEditor);
+$("#pineDelete").addEventListener("click", async e => {
+  const btn = e.currentTarget;
+  if (!btn.dataset.armed) { btn.dataset.armed = "1"; btn.textContent = "Click again to delete"; return; }
+  try { await pineStore.remove(editing); } catch (err) {}
+  const k = STRATS.findIndex(x => x.id === editing);
+  if (k >= 0) STRATS.splice(k, 1);
+  delete byId[editing];
+  if (S.strat === editing) S.strat = "z";
+  closeEditor(); fillStrategy(); render();
+});
+$("#pineNew").addEventListener("click", () => openEditor(null));
+$("#pineEdit").addEventListener("click", () => openEditor(S.strat));
+$("#notice").addEventListener("click", e => { if (e.target.dataset.fix && byId[S.strat].code) openEditor(S.strat); });
+
 // Local backend (serve_lab.py): lists and serves the CSVs in data/nq/ and re-runs fetch_nq.py.
 async function loadBackend() {
   const res = await fetch("api/datasets", { cache: "no-store" });
@@ -743,7 +938,7 @@ async function loadBackend() {
     try { out.push(parseCSV(await (await fetch("api/data/" + encodeURIComponent(f.name), { cache: "no-store" })).text(), f.name)); } catch (e) {}
   }
   const newest = list.length ? new Date(Math.max(...list.map(f => f.modified)) * 1000) : null;
-  $("#backend").hidden = false;
+  $("#backend").hidden = false; pineStore.backend = true;
   $("#backendNote").textContent = list.length ? `Connected to serve_lab.py · ${out.length} files from data/nq/, downloaded ${newest.toLocaleString()}.` : "Connected to serve_lab.py, but data/nq/ is empty. Click Refresh data to download.";
   return out;
 }
@@ -768,6 +963,7 @@ $("#refresh").addEventListener("click", async () => {
   }
   if (!S.datasets.length) S.datasets = [sampleDaily(), sample5m()];
   S.ds = Math.max(0, S.datasets.findIndex(d => !d.intraday));
+  try { for (const rec of await pineStore.load()) registerPine(rec); } catch (e) {}
   if (!byId[S.strat]) S.strat = "z";
   fillDatasets(); fillAccount();
   const savedFrom = S.from, savedTo = S.to; setRange();

@@ -87,3 +87,19 @@ RSI, z-score, time-series momentum, opening-range breakout, session VWAP bands) 
 stops, targets, direction, contract size and costs, and shows price with trade markers,
 equity vs buy & hold, drawdown, a side-by-side comparison, P&L by year and a trade log.
 Everything runs in the browser; files never leave your machine.
+
+### Pine Script strategies
+
+Click **+ Pine Script** in the lab, paste a TradingView `strategy()` script (Pine v5/v6)
+and press **Test & save**. Its `input.*()` values become settings in the left panel, its
+`plot()` lines are drawn on the price chart, and it joins the comparison table. With
+`serve_lab.py` running, scripts are saved to `strategies/*.pine` (so they can be committed);
+otherwise they are kept in the browser. Three examples ship in `strategies/`.
+
+The interpreter (`lab/pine.js`) runs a practical subset of Pine: variables, `var`, if/else,
+switch, loops, user functions, tuples, `x[n]` history, most `ta.*` and `math.*` functions,
+sessions via `time()`, and `strategy.entry/exit/close/close_all/cancel` with stops, limits,
+profit/loss ticks, trailing stops, partial exits and pyramiding. Orders fill at the next
+bar's open like TradingView (or at the close with `process_orders_on_close=true`). Arrays,
+drawings and `request.security()` on other timeframes are not supported; the editor says
+which line it can't run.
