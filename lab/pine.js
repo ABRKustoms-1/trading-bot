@@ -751,7 +751,7 @@ function makeEngine(b, cfg, opts) {
   const E = {
     lots: [], pend: [], exits: new Map(), closeReq: [], trades: [], cash: cfg.capital, allow: "all",
     dayKey: null, dayStart: cfg.capital, halted: false, peak: cfg.capital, rules: { limitDays: 0, blownAt: -1 },
-    eq: new Float64Array(n), held: new Int8Array(n), posHist: new Float64Array(n), inMkt: 0,
+    eq: new Float64Array(n), eqLow: new Float64Array(n), held: new Int8Array(n), bar0: null, posHist: new Float64Array(n), inMkt: 0,
     pos() { let p = 0; for (const l of this.lots) p += l.side * l.qty; return p; },
     avgPrice() { let q = 0, s = 0; for (const l of this.lots) { q += l.qty; s += l.qty * l.price; } return q ? s / q : NaN; },
     openProfit() { let u = 0; const c = b.c[R.i]; for (const l of this.lots) u += (c - l.price) * l.side * l.qty * pv; return u; },
@@ -774,6 +774,11 @@ function makeEngine(b, cfg, opts) {
       this.cash -= cost * q;
     },
     closePart(l, q, px, i, why) {
+      // remember the most adverse stop-type fill for this bar's intrabar drawdown
+      if (why !== "target" && this.intrabar && this.bar0 && this.bar0.net) {
+        const f = this.bar0;
+        f.fill = f.net > 0 ? Math.min(f.fill, px) : Math.max(f.fill, px);
+      }
       const gross = (px - l.price) * l.side * q * pv;
       this.cash += gross - cost * q;
       this.trades.push({ side: l.side, ei: l.bar, xi: i, ep: l.price, xp: px, qty: q, why, id: l.id, pnl: gross - 2 * cost * q });
@@ -834,6 +839,10 @@ function makeEngine(b, cfg, opts) {
     // Orders placed on the previous bar fill on this bar.
     open(i) {
       const o = b.o[i], h = b.h[i], l = b.l[i];
+      let net = 0, basis = 0;
+      for (const x of this.lots) { net += x.side * x.qty; basis += x.price * x.side * x.qty; }
+      this.bar0 = { net, basis, cash: this.cash, fill: net > 0 ? Infinity : -Infinity };
+      this.intrabar = true; // fills from here until the script runs happen inside the bar
       const tk = exTime().tday[i];
       if (tk !== this.dayKey) { this.dayKey = tk; this.dayStart = i > 0 ? this.eq[i - 1] : cfg.capital; if (this.rules.blownAt < 0) this.halted = false; }
       for (const r of this.closeReq) { const list = r === null ? [...this.lots] : this.lots.filter(x => x.id === r); if (list.length) this.closeLots(list, o, i, "close"); }
@@ -848,6 +857,7 @@ function makeEngine(b, cfg, opts) {
       }
       this.checkExits(i);
       this.checkRules(i);
+      this.intrabar = false;
     },
     checkExits(i) {
       const o = b.o[i], h = b.h[i], l = b.l[i], upFirst = (h - o) < (o - l);
@@ -925,6 +935,14 @@ function makeEngine(b, cfg, opts) {
       this.held[i] = Math.sign(p); this.posHist[i] = p;
       if (p !== 0) this.inMkt++;
       this.eq[i] = this.cash + this.openProfit();
+      // Worst equity of the position held coming into the bar: its adverse extreme, or the stop fill if it was stopped.
+      const f = this.bar0;
+      let low = this.eq[i];
+      if (f && f.net) {
+        const worst = f.net > 0 ? Math.max(b.l[i], isFinite(f.fill) ? f.fill : -Infinity) : Math.min(b.h[i], isFinite(f.fill) ? f.fill : Infinity);
+        low = Math.min(low, f.cash + (worst * f.net - f.basis) * pv);
+      }
+      this.eqLow[i] = low;
       this.peak = Math.max(this.peak, this.eq[i]);
     },
     result() {
@@ -933,7 +951,7 @@ function makeEngine(b, cfg, opts) {
         const gross = (b.c[last] - l.price) * l.side * l.qty * pv;
         this.trades.push({ side: l.side, ei: l.bar, xi: last, ep: l.price, xp: b.c[last], qty: l.qty, why: "open", open: true, id: l.id, pnl: gross - 2 * cost * l.qty });
       }
-      return { eq: this.eq, held: this.held, trades: this.trades, rules: this.rules, exposure: this.inMkt / Math.max(1, n) };
+      return { eq: this.eq, eqLow: this.eqLow, held: this.held, trades: this.trades, rules: this.rules, exposure: this.inMkt / Math.max(1, n) };
     },
   };
   return E;

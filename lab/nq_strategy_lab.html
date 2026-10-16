@@ -443,7 +443,7 @@ const defaults = s => Object.fromEntries(s.params.map(p => [p.id, p.def]));
 //   cfg.maxDD    - trailing max drawdown: equity may not fall this far below its highest close;
 //                  breaching it closes everything and ends trading for the rest of the test
 function backtest(b, sig, cfg) {
-  const n = b.c.length, eq = new Float64Array(n), held = new Int8Array(n), trades = [];
+  const n = b.c.length, eq = new Float64Array(n), eqLow = new Float64Array(n), held = new Int8Array(n), trades = [];
   const mult = cfg.pv * cfg.qty, side = cfg.cps * cfg.qty;
   let cash = cfg.capital, pos = 0, entry = 0, ei = 0, block = 0, bars = 0;
   let dayKey = null, dayStart = cfg.capital, halted = false, peak = cfg.capital;
@@ -452,6 +452,7 @@ function backtest(b, sig, cfg) {
   for (let i = 0; i < n; i++) {
     const tk = b.tday ? b.tday[i] : b.day[i];
     if (tk !== dayKey) { dayKey = tk; dayStart = i > 0 ? eq[i - 1] : cfg.capital; if (rules.blownAt < 0) halted = false; }
+    let low = Infinity; // worst equity reached inside this bar
     if (i > 0 && pos !== 0) {
       bars++;
       const prev = b.c[i - 1];
@@ -466,6 +467,9 @@ function backtest(b, sig, cfg) {
       let px = null, why = "";
       if (sp && (pos > 0 ? b.l[i] <= sp[0] : b.h[i] >= sp[0])) { px = pos > 0 ? Math.min(sp[0], b.o[i]) : Math.max(sp[0], b.o[i]); why = sp[1]; }
       if (px === null && cfg.tp > 0) { const tp = entry * (1 + pos * cfg.tp); if (pos > 0 ? b.h[i] >= tp : b.l[i] <= tp) { px = pos > 0 ? Math.max(tp, b.o[i]) : Math.min(tp, b.o[i]); why = "target"; } }
+      // A stop-type exit caps the adverse move at its fill; otherwise the bar's adverse extreme counts.
+      const worst = px !== null && why !== "target" ? px : pos > 0 ? b.l[i] : b.h[i];
+      low = cash + (worst - prev) * pos * mult;
       if (px !== null) {
         cash += (px - prev) * pos * mult;
         if (why !== "daily" && why !== "maxdd") block = pos; // after a stop, wait for a fresh signal
@@ -484,34 +488,42 @@ function backtest(b, sig, cfg) {
       if (pos !== 0) close(i, b.c[i], "signal");
       if (want !== 0) { pos = want; entry = b.c[i]; ei = i; cash -= side; }
     }
-    held[i] = pos; eq[i] = cash;
+    held[i] = pos; eq[i] = cash; eqLow[i] = Math.min(low, cash);
     peak = Math.max(peak, cash);
   }
   if (pos !== 0) trades.push({ side: pos, ei, xi: n - 1, ep: entry, xp: b.c[n - 1], why: "open", open: true, pnl: (b.c[n - 1] - entry) * pos * mult - 2 * side });
-  return { eq, held, trades, rules, exposure: bars / Math.max(1, n - 1) };
+  return { eq, eqLow, held, trades, rules, exposure: bars / Math.max(1, n - 1) };
 }
 
+// Metrics follow TradingView's definitions: profit factor, win rate and averages use closed
+// trades only (after costs); max drawdown is the largest fall from a closing-equity high to the
+// worst equity reached inside any later bar, open trades included.
 function stats(b, r, capital) {
-  const n = b.c.length, eq = r.eq, end = eq[n - 1], net = end - capital;
+  const n = b.c.length, eq = r.eq, low = r.eqLow || r.eq, end = eq[n - 1], net = end - capital;
   const years = (b.t[n - 1] - b.t[0]) / (365.25 * 864e5);
-  let peak = -Infinity, mdd = 0, mddUsd = 0, mddI = 0, wiped = -1;
+  let peak = capital, mdd = 0, mddUsd = 0, mddI = 0, wiped = -1;
   const dd = new Float64Array(n);
   for (let i = 0; i < n; i++) {
-    peak = Math.max(peak, eq[i]); dd[i] = peak > 0 ? Math.max(-1, eq[i] / peak - 1) : -1;
-    if (dd[i] < mdd) { mdd = dd[i]; mddI = i; } mddUsd = Math.min(mddUsd, eq[i] - peak);
-    if (wiped < 0 && eq[i] <= 0) wiped = i;
+    const trough = Math.min(low[i], eq[i]);
+    dd[i] = peak > 0 ? Math.max(-1, trough / peak - 1) : -1;
+    if (dd[i] < mdd) { mdd = dd[i]; mddI = i; }
+    mddUsd = Math.min(mddUsd, trough - peak);
+    if (wiped < 0 && trough <= 0) wiped = i;
+    peak = Math.max(peak, eq[i]);
   }
   const dayPnl = []; let last = capital;
   for (let i = 0; i < n; i++) if (i === n - 1 || b.day[i + 1] !== b.day[i]) { dayPnl.push(eq[i] - last); last = eq[i]; }
   const mean = dayPnl.reduce((a, x) => a + x, 0) / dayPnl.length;
   const sd = Math.sqrt(dayPnl.reduce((a, x) => a + (x - mean) ** 2, 0) / Math.max(1, dayPnl.length - 1));
-  const T = r.trades, wins = T.filter(t => t.pnl > 0), losses = T.filter(t => t.pnl <= 0);
+  const T = r.trades.filter(t => !t.open), open = r.trades.filter(t => t.open);
+  const wins = T.filter(t => t.pnl > 0), losses = T.filter(t => t.pnl <= 0);
   const gw = wins.reduce((a, t) => a + t.pnl, 0), gl = -losses.reduce((a, t) => a + t.pnl, 0);
   return {
-    net, end, dd, mdd, mddUsd, mddI, wiped,
+    net, end, dd, mdd, mddUsd, mddI, wiped, gw, gl,
     cagr: end <= 0 ? -1 : years > 0.08 ? Math.pow(end / capital, 1 / years) - 1 : NaN,
     sharpe: sd > 0 ? mean / sd * Math.sqrt(252) : NaN,
-    trades: T.length, win: T.length ? wins.length / T.length : NaN,
+    trades: T.length, openTrades: open.length, openPnl: open.reduce((a, t) => a + t.pnl, 0),
+    win: T.length ? wins.length / T.length : NaN,
     pf: gl > 0 ? gw / gl : gw > 0 ? Infinity : NaN,
     avg: T.length ? (gw - gl) / T.length : NaN,
     avgW: wins.length ? gw / wins.length : NaN, avgL: losses.length ? -gl / losses.length : NaN,
@@ -724,7 +736,11 @@ function render() {
   const bench = backtest(b, new Int8Array(b.c.length).fill(1), { ...cfg, stop: 0, tp: 0, maxLoss: 0, dayLimit: 0, maxDD: 0 });
 
   renderTiles(cur.st, cur.r, cfg);
-  renderRules(b, cur.r, cfg);
+  let raw = null;
+  if ((cfg.maxLoss || cfg.dayLimit || cfg.maxDD) && !(strat.intraday && !b.intraday)) {
+    try { raw = runOne(b, strat, P(S.strat), { ...cfg, maxLoss: 0, dayLimit: 0, maxDD: 0 }).st; } catch (e) {}
+  }
+  renderRules(b, cur.r, cfg, raw);
   renderPrice(b, cur);
   renderEquity(b, cur, bench, cfg);
   renderCompare(b, cfg);
@@ -737,22 +753,23 @@ function renderTiles(st, r, cfg) {
   $("#tiles").innerHTML = [
     t("Net P&amp;L", usd(st.net, true), `on ${usd(cfg.capital)} start`, cls(st.net)),
     t("CAGR", pct(st.cagr, true), st.wiped >= 0 ? "account went to zero" : "compound yearly", cls(st.cagr)),
-    t("Max drawdown", pct(st.mdd), usd(st.mddUsd), "neg"),
+    t("Max drawdown", usd(st.mddUsd), `${pct(st.mdd)} from the high, intrabar`, "neg"),
     t("Sharpe", num(st.sharpe), "daily P&amp;L, annualised"),
-    t("Trades", st.trades.toLocaleString("en-US"), `in market ${pct(st.exposure, false, 0)} of bars`),
-    t("Win rate", pct(st.win, false, 0), `avg win ${usd(st.avgW)}`),
-    t("Profit factor", num(st.pf), `avg loss ${usd(st.avgL)}`),
+    t("Trades", st.trades.toLocaleString("en-US"), st.openTrades ? `closed; 1 still open (${usd(st.openPnl, true)})` : `in market ${pct(st.exposure, false, 0)} of bars`),
+    t("Win rate", pct(st.win, false, 0), `avg win ${usd(st.avgW)} · loss ${usd(st.avgL)}`),
+    t("Profit factor", num(st.pf), `${usd(st.gw)} won / ${usd(st.gl)} lost`),
     t("Avg trade", usd(st.avg, true), "after costs", cls(st.avg)),
   ].join("");
 }
 
-function renderRules(b, r, cfg) {
+function renderRules(b, r, cfg, raw) {
   const el = $("#rules"), rr = r.rules || { limitDays: 0, blownAt: -1 }, parts = [];
   if (!cfg.maxLoss && !cfg.dayLimit && !cfg.maxDD) { el.hidden = true; return; }
   parts.push(`<b>Account rules</b>`);
   if (cfg.maxLoss) parts.push(`<span>Max ${usd(cfg.maxLoss)} per trade: <span class="pill">${r.trades.filter(t => t.why === "risk").length} trades capped</span></span>`);
   if (cfg.dayLimit) parts.push(`<span>Daily limit ${usd(cfg.dayLimit)}: <span class="pill ${rr.limitDays ? "bad" : "ok"}">${rr.limitDays ? `hit on ${rr.limitDays} day${rr.limitDays > 1 ? "s" : ""}` : "never hit"}</span></span>`);
   if (cfg.maxDD) parts.push(`<span>Max drawdown ${usd(cfg.maxDD)}: <span class="pill ${rr.blownAt >= 0 ? "bad" : "ok"}">${rr.blownAt >= 0 ? `breached ${when(b, rr.blownAt)}, trading stopped` : "never breached"}</span></span>`);
+  if (raw) parts.push(`<span>Without these rules: <span class="pill">PF ${num(raw.pf)} · net ${usd(raw.net, true)} · max DD ${usd(raw.mddUsd)}</span></span>`);
   el.innerHTML = parts.join("");
   el.hidden = false;
 }
@@ -782,7 +799,7 @@ function renderEquity(b, cur, bench, cfg) {
   drawChart(charts.eq, { b, series: [{ data: be, color: cssv("--muted"), dash: true, width: 1.2 }, { data: eq, color: cssv("--series"), width: 2, fill: cfg.capital }], yFmt: v => "$" + compact(v),
     tip: i => `<b>${when(b, i)}</b><br>Strategy ${usd(eq[i])}<br>Buy &amp; hold ${usd(be[i])}` });
   const dd = Float64Array.from(cur.st.dd, v => v * 100);
-  drawChart(charts.dd, { b, series: [{ data: dd, color: cssv("--loss"), width: 1.4, fill: 0 }], yMax: 0, yFmt: v => (v < 0 ? "−" : "") + Math.abs(Math.round(v)) + "%",
+  drawChart(charts.dd, { b, series: [{ data: dd, color: cssv("--loss"), width: 1.4, fill: 0 }], yMax: 0, yFmt: v => (v < 0 ? "−" : "") + Math.abs(+v.toFixed(1)) + "%",
     tip: i => `<b>${when(b, i)}</b><br>Below high ${pct(cur.st.dd[i])}` });
 }
 
@@ -796,14 +813,14 @@ function renderCompare(b, cfg) {
     const params = s.id === S.strat ? P(s.id) : defaults(s), key = base + s.id + JSON.stringify(params) + (s.code || "");
     let st = cmpCache.get(key);
     if (!st) {
-      try { const x = runOne(b, s, params, cfg).st; st = { net: x.net, cagr: x.cagr, mdd: x.mdd, sharpe: x.sharpe, trades: x.trades }; }
+      try { const x = runOne(b, s, params, cfg).st; st = { net: x.net, cagr: x.cagr, mdd: x.mdd, mddUsd: x.mddUsd, pf: x.pf, trades: x.trades }; }
       catch (e) { st = { error: e.message }; }
       cmpCache.set(key, st);
     }
     if (st.error) return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="na" colspan="5" style="white-space:normal">Script error: ${esc(st.error)}</td></tr>`;
-    return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="${cls(st.net)}">${usd(st.net, true)}</td><td class="${cls(st.cagr)}">${pct(st.cagr, true)}</td><td class="neg">${pct(st.mdd)}</td><td>${num(st.sharpe)}</td><td>${st.trades}</td></tr>`;
+    return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="${cls(st.net)}">${usd(st.net, true)}</td><td class="${cls(st.cagr)}">${pct(st.cagr, true)}</td><td class="neg">${usd(st.mddUsd)}</td><td>${num(st.pf)}</td><td>${st.trades}</td></tr>`;
   });
-  $("#cmp").innerHTML = `<thead><tr><th>Strategy</th><th>Net P&amp;L</th><th>CAGR</th><th>Max DD</th><th>Sharpe</th><th>Trades</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+  $("#cmp").innerHTML = `<thead><tr><th>Strategy</th><th>Net P&amp;L</th><th>CAGR</th><th>Max DD</th><th>Profit factor</th><th>Trades</th></tr></thead><tbody>${rows.join("")}</tbody>`;
 }
 
 function renderYears(b, cur, cfg) {
