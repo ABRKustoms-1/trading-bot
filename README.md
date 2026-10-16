@@ -80,8 +80,9 @@ Add your own strategy as a function in `backtest.py` and register it in `STRATEG
 
 ## Strategy Lab (visual backtester)
 
-Open `lab/nq_strategy_lab.html` in a browser and load the CSVs from `data/nq/` with
-"Load CSV files". It runs nine strategies (buy & hold, MA cross, trend filter, Donchian,
+Run `python serve_lab.py` and it opens http://localhost:8000 with every price CSV in
+`data/nq/` already loaded; the "Refresh data" button re-runs `fetch_nq.py` to pull the
+latest bars. (You can also open `lab/nq_strategy_lab.html` directly and use "Load CSV files".) It runs nine strategies (buy & hold, MA cross, trend filter, Donchian,
 RSI, z-score, time-series momentum, opening-range breakout, session VWAP bands) with
 stops, targets, direction, contract size and costs, and shows price with trade markers,
 equity vs buy & hold, drawdown, a side-by-side comparison, P&L by year and a trade log.

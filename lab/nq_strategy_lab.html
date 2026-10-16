@@ -112,7 +112,11 @@ td.na { color: var(--muted); font-family: var(--sans) }
         <span class="btn ghost filebtn">Load CSV files<input type="file" id="file" accept=".csv,text/csv" multiple></span>
         <button class="btn ghost" id="forget" type="button">Forget files</button>
       </div>
-      <p class="hint">Use the CSVs from <code>python fetch_nq.py</code> (data/nq/), or any CSV with Date, Open, High, Low, Close, Volume. Drop files anywhere on the page. Files stay in this browser.</p>
+      <div id="backend" hidden style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn" id="refresh" type="button">Refresh data</button>
+        <p class="hint" id="backendNote"></p>
+      </div>
+      <p class="hint" id="fileHint">Run <code>python serve_lab.py</code> to load data/nq/ automatically, or use the CSVs from <code>python fetch_nq.py</code> (data/nq/), or any CSV with Date, Open, High, Low, Close, Volume. Drop files anywhere on the page. Files stay in this browser.</p>
     </div>
 
     <div class="sec">
@@ -730,10 +734,38 @@ new ResizeObserver(() => schedule()).observe($("#priceChart"));
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
+// Local backend (serve_lab.py): lists and serves the CSVs in data/nq/ and re-runs fetch_nq.py.
+async function loadBackend() {
+  const res = await fetch("api/datasets", { cache: "no-store" });
+  if (!res.ok || !(res.headers.get("content-type") || "").includes("json")) throw new Error("no backend");
+  const list = await res.json(), out = [];
+  for (const f of list) {
+    try { out.push(parseCSV(await (await fetch("api/data/" + encodeURIComponent(f.name), { cache: "no-store" })).text(), f.name)); } catch (e) {}
+  }
+  const newest = list.length ? new Date(Math.max(...list.map(f => f.modified)) * 1000) : null;
+  $("#backend").hidden = false;
+  $("#backendNote").textContent = list.length ? `Connected to serve_lab.py · ${out.length} files from data/nq/, downloaded ${newest.toLocaleString()}.` : "Connected to serve_lab.py, but data/nq/ is empty. Click Refresh data to download.";
+  return out;
+}
+$("#refresh").addEventListener("click", async () => {
+  const btn = $("#refresh"), note = $("#backendNote");
+  btn.disabled = true; btn.textContent = "Downloading…"; note.textContent = "Running fetch_nq.py. This takes a minute or two.";
+  try {
+    const r = await (await fetch("api/refresh", { method: "POST" })).json();
+    if (!r.ok) throw new Error(r.output.trim().split("\n").pop() || "fetch_nq.py failed");
+    const fresh = await loadBackend();
+    if (fresh.length) { const name = S.datasets[S.ds]?.name; S.datasets = fresh; S.ds = Math.max(0, fresh.findIndex(d => d.name === name)); fillDatasets(); setRange(); fillStrategy(); render(); }
+  } catch (e) { note.textContent = "Refresh failed: " + e.message; }
+  btn.disabled = false; btn.textContent = "Refresh data";
+});
+
 (async function init() {
-  let saved = [];
-  try { saved = await idb.all(); } catch (e) {}
-  for (const [name, text] of saved) { try { S.datasets.push(parseCSV(text, name)); } catch (e) {} }
+  try { S.datasets = await loadBackend(); } catch (e) {}
+  if (!S.datasets.length) {
+    let saved = [];
+    try { saved = await idb.all(); } catch (e) {}
+    for (const [name, text] of saved) { try { S.datasets.push(parseCSV(text, name)); } catch (e) {} }
+  }
   if (!S.datasets.length) S.datasets = [sampleDaily(), sample5m()];
   S.ds = Math.max(0, S.datasets.findIndex(d => !d.intraday));
   if (!byId[S.strat]) S.strat = "z";
