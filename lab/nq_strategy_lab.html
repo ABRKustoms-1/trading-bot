@@ -108,6 +108,15 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
 .pine details code { font: 12px var(--mono); color: var(--ink) }
 .pine .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap }
 .btn.danger { color: var(--loss); border-color: color-mix(in srgb, var(--loss) 40%, var(--line)) }
+.zoombar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 8px }
+.zoombar .seg { display: inline-grid; grid-auto-flow: column; grid-template-columns: none }
+.zoombar .seg button { padding: 5px 10px; font: 500 12px var(--mono) }
+.zoombar .seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink) }
+.zoombar .zbtn { background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: 500 13px var(--mono); color: var(--ink-2) }
+.zoombar .zbtn:hover, .zoombar .seg button:hover { color: var(--ink) }
+.zoombar .label { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums }
+.chart.zoomable { cursor: crosshair }
+.chart.dragging { cursor: grabbing }
 .rules { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; color: var(--ink-2) }
 .rules b { font-weight: 600; color: var(--ink) }
 .rules .pill { font-family: var(--mono); font-size: 12px; padding: 2px 9px }
@@ -189,6 +198,12 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
     <section class="card">
       <h3>Price and trades</h3>
       <p class="sub" id="priceSub"></p>
+      <div class="zoombar">
+        <div class="seg" role="group" aria-label="Visible range" id="ranges"></div>
+        <button class="zbtn" type="button" id="zoomOut" aria-label="Zoom out">−</button>
+        <button class="zbtn" type="button" id="zoomIn" aria-label="Zoom in">+</button>
+        <span class="label" id="viewLabel"></span>
+      </div>
       <div class="legend" id="priceLegend"></div>
       <div class="chart" id="priceChart" style="height:360px"></div>
     </section>
@@ -549,17 +564,17 @@ function niceTicks(lo, hi, count) {
   for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-6; v += step) out.push(+v.toPrecision(12));
   return out;
 }
-function xTicks(b, W) {
-  const n = b.c.length, span = (b.t[n - 1] - b.t[0]) / 864e5;
+function xTicks(b, W, i0 = 0, i1 = b.c.length - 1) {
+  const span = (b.t[i1] - b.t[i0]) / 864e5, nv = Math.max(1, i1 - i0);
   let key, lab;
   if (span > 3 * 365) { key = i => b.day[i].slice(0, 4); lab = i => b.day[i].slice(0, 4); }
   else if (span > 100) { key = i => b.day[i].slice(0, 7); lab = i => { const m = +b.day[i].slice(5, 7); return m === 1 ? b.day[i].slice(0, 4) : MON[m - 1]; }; }
   else if (span > 4 || !b.intraday) { key = i => b.day[i]; lab = i => `${MON[+b.day[i].slice(5, 7) - 1]} ${+b.day[i].slice(8, 10)}`; }
-  else { key = i => b.day[i] + (b.mod[i] / 60 | 0); lab = i => `${b.mod[i] / 60 | 0}:00`; }
-  const all = []; let prev = key(0);
-  for (let i = 1; i < n; i++) { const k = key(i); if (k !== prev) { all.push([i, lab(i)]); prev = k; } }
+  else { key = i => b.day[i] + (b.mod[i] / 60 | 0); lab = i => b.mod[i] < 60 ? `${MON[+b.day[i].slice(5, 7) - 1]} ${+b.day[i].slice(8, 10)}` : `${b.mod[i] / 60 | 0}:00`; }
+  const all = []; let prev = key(i0);
+  for (let i = i0 + 1; i <= i1; i++) { const k = key(i); if (k !== prev) { all.push([i, lab(i)]); prev = k; } }
   const out = []; let lastX = -1e9;
-  for (const t of all) { const x = t[0] / (n - 1) * W; if (x - lastX >= 64) { out.push(t); lastX = x; } }
+  for (const t of all) { const x = (t[0] - i0) / nv * W; if (x - lastX >= 64) { out.push(t); lastX = x; } }
   return out;
 }
 
@@ -571,7 +586,8 @@ function makeChart(host) {
     const s = ch.spec; if (!s) return;
     const r = host.getBoundingClientRect(), mx = e.clientX - r.left;
     if (mx < s.L || mx > s.L + s.W) return leave();
-    const i = Math.round((mx - s.L) / s.W * (s.n - 1));
+    if (drag) return;
+    const i = Math.max(s.i0, Math.min(s.i1, Math.round(s.i0 + (mx - s.L) / s.W * s.span)));
     const ctx = over.getContext("2d"), dpr = devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, r.width, r.height);
     const x = s.x(i);
@@ -585,7 +601,32 @@ function makeChart(host) {
     tip.style.top = Math.max(0, Math.min(r.height - tip.offsetHeight, e.clientY - r.top - tip.offsetHeight / 2)) + "px";
   };
   const leave = () => { tip.hidden = true; const ctx = over.getContext("2d"); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, over.width, over.height); };
-  host.addEventListener("pointermove", move); host.addEventListener("pointerleave", leave); host.addEventListener("pointerdown", move);
+  // Zoom and pan act on the shared view window, so every chart follows.
+  let drag = null;
+  host.classList.add("zoomable");
+  host.addEventListener("wheel", e => {
+    const s = ch.spec; if (!s) return;
+    e.preventDefault();
+    const r = host.getBoundingClientRect(), f = Math.max(0, Math.min(1, (e.clientX - r.left - s.L) / s.W));
+    zoomView(e.deltaY > 0 ? 1.25 : 0.8, f);
+  }, { passive: false });
+  host.addEventListener("pointerdown", e => {
+    const s = ch.spec; if (!s) return;
+    if (e.pointerType !== "mouse") return move(e);
+    drag = { x: e.clientX, i0: s.i0, i1: s.i1, per: s.span / s.W, moved: false };
+    host.setPointerCapture(e.pointerId);
+  });
+  host.addEventListener("pointermove", e => {
+    if (!drag) return move(e);
+    const di = Math.round((drag.x - e.clientX) * drag.per);
+    if (!drag.moved && Math.abs(drag.x - e.clientX) < 3) return;
+    drag.moved = true; host.classList.add("dragging"); leave();
+    setView(drag.i0 + di, drag.i1 + di);
+  });
+  const end = () => { if (drag) { drag = null; host.classList.remove("dragging"); } };
+  host.addEventListener("pointerup", end); host.addEventListener("pointercancel", end);
+  host.addEventListener("pointerleave", () => { if (!drag) leave(); });
+  host.addEventListener("dblclick", () => { S.view = null; redrawCharts(); });
   return ch;
 }
 
@@ -594,13 +635,15 @@ function drawChart(ch, spec) {
   for (const cv of [ch.base, ch.over]) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   const ctx = ch.base.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
   const n = spec.b.c.length, L = 6, R = 58, T = 8, B = 24, W = w - L - R, H = h - T - B;
+  const i0 = spec.i0 ?? 0, i1 = spec.i1 ?? n - 1, span = Math.max(1, i1 - i0);
+  const a0 = Math.max(0, i0 - 1), a1 = Math.min(n - 1, i1 + 1); // one bar past each edge keeps lines continuous
   let lo = Infinity, hi = -Infinity;
-  for (const s of spec.series) for (let i = 0; i < n; i++) { const v = s.data[i]; if (isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } }
+  for (const s of spec.series) for (let i = i0; i <= i1; i++) { const v = s.data[i]; if (isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } }
   if (spec.yMin !== undefined) lo = Math.min(lo, spec.yMin);
   if (spec.yMax !== undefined) hi = Math.max(hi, spec.yMax);
   if (!isFinite(lo)) { lo = 0; hi = 1; }
   const padY = (hi - lo) * 0.06 || 1; if (spec.yMax === undefined) hi += padY; if (spec.yMin === undefined || lo < spec.yMin) lo -= padY;
-  const x = i => L + (n > 1 ? i / (n - 1) : 0.5) * W, y = v => T + (hi - v) / (hi - lo) * H;
+  const x = i => L + (i - i0) / span * W, y = v => T + (hi - v) / (hi - lo) * H;
   ctx.font = `11px ${cssv("--mono")}`; ctx.textBaseline = "middle";
   ctx.strokeStyle = cssv("--grid"); ctx.fillStyle = cssv("--muted"); ctx.lineWidth = 1;
   for (const v of niceTicks(lo, hi, Math.max(3, Math.round(H / 55)))) {
@@ -609,15 +652,15 @@ function drawChart(ch, spec) {
     ctx.fillText(spec.yFmt(v), L + W + 8, yy);
   }
   ctx.textAlign = "center"; ctx.textBaseline = "top";
-  for (const [i, lab] of xTicks(spec.b, W)) { const xx = x(i); if (xx < L + 14 || xx > L + W - 14) continue; ctx.fillText(lab, xx, T + H + 7); }
+  for (const [i, lab] of xTicks(spec.b, W, i0, i1)) { const xx = x(i); if (xx < L + 14 || xx > L + W - 14) continue; ctx.fillText(lab, xx, T + H + 7); }
   ctx.textAlign = "left";
   ctx.save(); ctx.beginPath(); ctx.rect(L, T - 2, W, H + 4); ctx.clip();
   for (const s of spec.series) {
-    const pts = [], d = s.data, perCol = n > W * 2;
+    const pts = [], d = s.data, perCol = span > W * 2;
     let col = null, mn, mx, first, lastV;
     const flush = () => { if (col === null) return; pts.push([col, first]); if (perCol) { pts.push([col, mn]); pts.push([col, mx]); } pts.push([col, lastV]); col = null; };
     const segs = [[]];
-    for (let i = 0; i < n; i++) {
+    for (let i = a0; i <= a1; i++) {
       const v = d[i];
       if (!isFinite(v)) { flush(); if (pts.length) { segs.push(pts.splice(0)); } continue; }
       const c = perCol ? Math.round(x(i)) : x(i);
@@ -637,6 +680,7 @@ function drawChart(ch, spec) {
   ctx.setLineDash([]);
   const ring = cssv("--panel");
   for (const m of spec.markers || []) {
+    if (m.i < i0 || m.i > i1) continue;
     const mx2 = x(m.i), my = y(m.v); ctx.fillStyle = m.color; ctx.strokeStyle = ring; ctx.lineWidth = 1.5; ctx.beginPath();
     if (m.shape === "up") { ctx.moveTo(mx2, my - 1); ctx.lineTo(mx2 - 5, my + 8); ctx.lineTo(mx2 + 5, my + 8); }
     else if (m.shape === "down") { ctx.moveTo(mx2, my + 1); ctx.lineTo(mx2 - 5, my - 8); ctx.lineTo(mx2 + 5, my - 8); }
@@ -644,8 +688,79 @@ function drawChart(ch, spec) {
     ctx.closePath(); ctx.stroke(); ctx.fill();
   }
   ctx.restore();
-  ch.spec = { ...spec, n, L, W, T, H, x, y };
+  ch.spec = { ...spec, n, L, W, T, H, x, y, i0, i1, span };
 }
+
+// ---------------------------------------------------------------- zoom
+// S.view = { t0, t1, d0, d1, intraday } or null for everything. It holds times and NY calendar
+// days (not bar numbers) so the same window carries over between daily and intraday data:
+// intraday charts use the exact times when the window was set on intraday data, otherwise days.
+const MIN_BARS = 20;
+let last = null; // what the charts last drew, so zooming redraws without re-running the backtest
+function viewIdx(b) {
+  const n = b.c.length;
+  if (!S.view || n <= MIN_BARS) return { i0: 0, i1: n - 1, note: "" };
+  let i0 = 0, i1 = n - 1;
+  const byTime = b.intraday && S.view.intraday, V = S.view;
+  const before = i => byTime ? b.t[i] < V.t0 : b.day[i] < V.d0, after = i => byTime ? b.t[i] > V.t1 : b.day[i] > V.d1;
+  while (i0 < n - 1 && before(i0)) i0++;
+  while (i1 > 0 && after(i1)) i1--;
+  if (i1 < i0) {
+    const f = d => `${MON[+d.slice(5, 7) - 1]} ${+d.slice(8, 10)}, ${d.slice(0, 4)}`;
+    return { i0: 0, i1: n - 1, note: `No bars in the zoomed range here; this data covers ${f(b.day[0])} – ${f(b.day[n - 1])}` };
+  }
+  if (i1 - i0 < MIN_BARS) { const c = (i0 + i1) >> 1; i0 = Math.max(0, Math.min(n - 1 - MIN_BARS, c - (MIN_BARS >> 1))); i1 = Math.min(n - 1, i0 + MIN_BARS); }
+  return { i0, i1, note: "" };
+}
+function setView(i0, i1) {
+  if (!last) return;
+  const b = last.b, n = b.c.length, w = i1 - i0;
+  if (i0 < 0) { i0 = 0; i1 = w; }
+  if (i1 > n - 1) { i1 = n - 1; i0 = Math.max(0, i1 - w); }
+  S.view = i0 <= 0 && i1 >= n - 1 ? null : viewOf(b, i0, i1);
+  redrawCharts();
+}
+const viewOf = (b, i0, i1) => ({ t0: b.t[i0], t1: b.t[i1], d0: b.day[i0], d1: b.day[i1], intraday: b.intraday });
+function zoomView(factor, f = 0.5) {
+  if (!last) return;
+  const { i0, i1 } = viewIdx(last.b), n = last.b.c.length;
+  const span = Math.max(MIN_BARS, Math.min(n - 1, Math.round((i1 - i0) * factor)));
+  const anchor = i0 + f * (i1 - i0), s0 = Math.round(anchor - f * span);
+  setView(s0, s0 + span);
+}
+const RANGES = [["1D", 1], ["1W", 7], ["1M", 30], ["3M", 91], ["1Y", 365], ["5Y", 1826], ["All", 0]];
+function rangeView(days) {
+  if (!last) return;
+  if (!days) { S.view = null; return redrawCharts(); }
+  const b = last.b, { i1 } = viewIdx(b);
+  // 1D on intraday data means the trading session of the right-hand bar
+  let i0 = days === 1 && b.intraday ? b.tday.indexOf(b.tday[i1]) : i1;
+  const t0 = b.t[i1] - days * 864e5;
+  if (!(days === 1 && b.intraday)) while (i0 > 0 && b.t[i0 - 1] >= t0) i0--;
+  S.view = viewOf(b, i0, i1);
+  redrawCharts();
+}
+function renderZoombar(b, v) {
+  const span = (b.t[b.c.length - 1] - b.t[0]) / 864e5, cur = S.view ? (b.t[v.i1] - b.t[v.i0]) / 864e5 : Infinity;
+  $("#ranges").innerHTML = RANGES.filter(([, d]) => !d || d < span * 0.9 && (b.intraday || d >= 30))
+    .map(([lab, d]) => `<button type="button" data-days="${d}" aria-pressed="${!d ? !S.view : Math.abs(cur - d) / d < 0.15}">${lab}</button>`).join("");
+  const f = i => b.intraday ? when(b, i) : when(b, i).replace(/, \d{4}$/, b.day[v.i0].slice(0, 4) === b.day[v.i1].slice(0, 4) ? "" : ", " + b.day[i].slice(0, 4));
+  $("#viewLabel").textContent = v.note || `${f(v.i0)} – ${when(b, v.i1)} · ${(v.i1 - v.i0 + 1).toLocaleString("en-US")} bars${S.view ? "" : " · scroll to zoom, drag to pan, double-click to reset"}`;
+}
+let drawPending = 0;
+function redrawCharts() {
+  if (drawPending) return;
+  drawPending = requestAnimationFrame(() => {
+    drawPending = 0;
+    if (!last) return;
+    const { b, cur, bench, cfg } = last, v = viewIdx(b);
+    renderZoombar(b, v); renderPrice(b, cur, v); renderEquity(b, cur, bench, cfg, v);
+    save();
+  });
+}
+$("#ranges").addEventListener("click", e => { const d = e.target.dataset.days; if (d !== undefined) rangeView(+d); });
+$("#zoomIn").addEventListener("click", () => zoomView(0.5));
+$("#zoomOut").addEventListener("click", () => zoomView(2));
 
 // ---------------------------------------------------------------- state & UI
 const S = { datasets: [], ds: 0, strat: "z", params: {}, dir: "long", stop: 0, tp: 0, rth: false, contract: "NQ", qty: 1, comm: 2.5, slip: 1, capital: 50000, maxLoss: 400, dayLimit: 2000, maxDD: 0, rulesV: 1, from: "", to: "", showAll: false };
@@ -741,8 +856,11 @@ function render() {
     try { raw = runOne(b, strat, P(S.strat), { ...cfg, maxLoss: 0, dayLimit: 0, maxDD: 0 }).st; } catch (e) {}
   }
   renderRules(b, cur.r, cfg, raw);
-  renderPrice(b, cur);
-  renderEquity(b, cur, bench, cfg);
+  last = { b, cur, bench, cfg };
+  const v = viewIdx(b);
+  renderZoombar(b, v);
+  renderPrice(b, cur, v);
+  renderEquity(b, cur, bench, cfg, v);
   renderCompare(b, cfg);
   renderYears(b, cur, cfg);
   renderTrades(b, cur.r);
@@ -774,32 +892,33 @@ function renderRules(b, r, cfg, raw) {
   el.hidden = false;
 }
 
-function renderPrice(b, cur) {
+function renderPrice(b, cur, v) {
   const series = [{ data: b.c, color: cssv("--price"), width: 1.4, label: "Close" }];
   cur.ov.forEach(o => series.push({ data: o.data, color: cssv(o.color || "--series"), dash: o.dash, width: o.dash ? 1.2 : 1.6, label: o.label, noDot: true }));
-  const T = cur.r.trades, show = T.length <= 300, markers = [];
+  // Markers show when the trades on screen (not in the whole test) number 300 or fewer.
+  const T = cur.r.trades.filter(t => t.xi >= v.i0 && t.ei <= v.i1), show = T.length <= 300, markers = [];
   if (show) for (const t of T) {
     markers.push({ i: t.ei, v: t.ep, shape: t.side > 0 ? "up" : "down", color: t.side > 0 ? cssv("--long") : cssv("--short") });
     if (!t.open) markers.push({ i: t.xi, v: t.xp, shape: "dot", color: cssv("--ink-2") });
   }
-  $("#priceSub").textContent = show ? "Up triangles are long entries, down triangles short entries, dots exits. Markers hide above 300 trades." : `${T.length.toLocaleString("en-US")} trades: markers hidden above 300. Narrow the date range to see them.`;
+  $("#priceSub").textContent = show ? "Up triangles are long entries, down triangles short entries, dots exits." : `${T.length.toLocaleString("en-US")} trades on screen: zoom in to see their markers (they show at 300 or fewer).`;
   const leg = [`<span><i style="color:var(--price)"></i>Close</span>`];
   cur.ov.forEach(o => o.label && leg.push(`<span><i class="${o.dash ? "dash" : ""}" style="color:var(${o.color || "--series"})"></i>${esc(o.label)}</span>`));
   if (show && T.length) { leg.push(`<span><i class="tri" style="color:var(--long)"></i>Long entry</span>`); if (T.some(t => t.side < 0)) leg.push(`<span><i class="tri" style="color:var(--short);transform:rotate(180deg)"></i>Short entry</span>`); leg.push(`<span><i class="dot" style="background:var(--ink-2)"></i>Exit</span>`); }
   $("#priceLegend").innerHTML = leg.join("");
   const held = cur.r.held;
-  drawChart(charts.price, { b, series, markers, yFmt: compact,
+  drawChart(charts.price, { b, series, markers, yFmt: compact, i0: v.i0, i1: v.i1,
     tip: i => `<b>${when(b, i)}</b><br>O ${px(b.o[i])}  H ${px(b.h[i])}<br>L ${px(b.l[i])}  C ${px(b.c[i])}` +
       cur.ov.filter(o => o.label && isFinite(o.data[i])).map(o => `<br>${esc(o.label)} ${px(o.data[i])}`).join("") +
       `<br>Position <b>${held[i] > 0 ? "long" : held[i] < 0 ? "short" : "flat"}</b>` });
 }
 
-function renderEquity(b, cur, bench, cfg) {
+function renderEquity(b, cur, bench, cfg, v) {
   const eq = cur.r.eq, be = bench.eq;
-  drawChart(charts.eq, { b, series: [{ data: be, color: cssv("--muted"), dash: true, width: 1.2 }, { data: eq, color: cssv("--series"), width: 2, fill: cfg.capital }], yFmt: v => "$" + compact(v),
+  drawChart(charts.eq, { b, i0: v.i0, i1: v.i1, series: [{ data: be, color: cssv("--muted"), dash: true, width: 1.2 }, { data: eq, color: cssv("--series"), width: 2, fill: cfg.capital }], yFmt: v => "$" + compact(v),
     tip: i => `<b>${when(b, i)}</b><br>Strategy ${usd(eq[i])}<br>Buy &amp; hold ${usd(be[i])}` });
   const dd = Float64Array.from(cur.st.dd, v => v * 100);
-  drawChart(charts.dd, { b, series: [{ data: dd, color: cssv("--loss"), width: 1.4, fill: 0 }], yMax: 0, yFmt: v => (v < 0 ? "−" : "") + Math.abs(+v.toFixed(1)) + "%",
+  drawChart(charts.dd, { b, i0: v.i0, i1: v.i1, series: [{ data: dd, color: cssv("--loss"), width: 1.4, fill: 0 }], yMax: 0, yFmt: v => (v < 0 ? "−" : "") + Math.abs(+v.toFixed(1)) + "%",
     tip: i => `<b>${when(b, i)}</b><br>Below high ${pct(cur.st.dd[i])}` });
 }
 
