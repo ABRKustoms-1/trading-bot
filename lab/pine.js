@@ -767,6 +767,7 @@ function makeEngine(b, cfg, opts) {
       if (this.halted) return;
       const opp = this.lots.filter(l => l.side !== o.side);
       if (opp.length) this.closeLots(opp, px, i, "reverse");
+      if (cfg.win && !cfg.win.enter[i]) return; // outside the lab's trading windows: exits only
       if (!this.allowed(o.side)) return;
       if (this.lots.filter(l => l.side === o.side).length >= pyr) return;
       const q = o.qty > 0 ? o.qty : cfg.qty;
@@ -923,8 +924,8 @@ function makeEngine(b, cfg, opts) {
     },
     close_(i) {
       const c = b.c[i];
-      if (cfg.rth && b.intraday && (b.mod[i] >= 955 || b.mod[i] < 570)) {
-        if (this.lots.length) this.closeLots([...this.lots], c, i, "session");
+      if (cfg.win && cfg.winClose && cfg.win.flat[i]) {
+        if (this.lots.length) this.closeLots([...this.lots], c, i, "window");
         this.pend = this.pend.filter(p => !p.market);
       }
       const eqNow = this.cash + this.openProfit();
@@ -1129,7 +1130,8 @@ function exec(s, scope, ctx) {
 
 // ---------------------------------------------------------------- run
 // bars: { t, o, h, l, c, v, day, mod, intraday, interval } (see the lab's finalize()).
-// cfg: { pv, qty, cps, stop, tp, capital, dir: "long"|"short"|"both", rth }
+// cfg: { pv, qty, cps, stop, tp, capital, dir: "long"|"short"|"both", maxLoss, dayLimit, maxDD,
+//        win: { enter, flat } per-bar trading-window masks from the lab (or null), winClose }
 function run(prog, bars, params, cfg) {
   const n = bars.c.length, prevR = R;
   R = { prog, b: bars, n, i: 0, params: params || {}, cfg, line: 0, depth: 0, loops: 0,

@@ -127,3 +127,12 @@ and pauses until the next session at 18:00 NY) and an optional **trailing max dr
 Limits are checked against each bar's high and low and include open P&L, so a loss can only
 exceed a limit by the exit costs or a gap through the level. A summary above the stats shows
 how many trades were capped, how many days hit the daily limit and whether the drawdown was breached.
+
+### Trading windows and Pacific time
+
+On intraday data the lab only opens trades inside the **Trading windows** set in the left panel,
+entered in Pacific time: Asia 3:00–7:00pm PT and New York 6:30am–1:00pm PT by default (London
+12:00–5:00am PT is available but off). Nothing opens after 7pm PT (10pm ET). With "Close open
+trades when a window ends" checked, positions are flattened at each window's end. Chart labels,
+tooltips and the trade list show Pacific time; strategy logic (and Pine `hour`/`time()`) keeps
+using exchange/NY time as on TradingView.
