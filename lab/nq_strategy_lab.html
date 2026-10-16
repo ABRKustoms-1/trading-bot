@@ -117,6 +117,9 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
 .zoombar .label { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums }
 .chart.zoomable { cursor: crosshair }
 .chart.dragging { cursor: grabbing }
+.evts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px }
+.evts .n { color: var(--muted); font: 12px var(--mono) }
+#customDays { width: 100%; min-width: 0; resize: vertical; background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: 13px var(--mono) }
 .wins { display: flex; flex-direction: column; gap: 6px }
 .win { display: grid; grid-template-columns: minmax(0, 1fr) 92px 10px 92px; gap: 6px; align-items: center }
 .win span { color: var(--muted); text-align: center }
@@ -180,6 +183,14 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
       <div class="wins" id="wins"></div>
       <label class="check"><input type="checkbox" id="winClose"> Close open trades when a window ends</label>
       <p class="hint" id="winHint"></p>
+    </div>
+
+    <div class="sec">
+      <h2>No-trade days</h2>
+      <div class="evts" id="evts"></div>
+      <label for="customDays" class="hint">Extra dates to skip, one per line (YYYY-MM-DD)</label>
+      <textarea id="customDays" rows="3" spellcheck="false" placeholder="2025-12-24"></textarea>
+      <p class="hint" id="evHint"></p>
     </div>
 
     <div class="sec">
@@ -496,6 +507,20 @@ function winMask(b, cfg) {
   return mask;
 }
 
+// Trading windows plus no-trade days: no new trades on a skipped date (US Eastern calendar day).
+const gateCache = new WeakMap();
+function gateMask(b, cfg) {
+  const w = winMask(b, cfg), days = cfg.noTradeDays || [];
+  if (!days.length) return w;
+  const key = (w ? "w" : "") + days.join(","), hit = gateCache.get(b);
+  if (hit && hit.key === key && hit.w === w) return hit.mask;
+  const skip = new Set(days), n = b.c.length, enter = new Uint8Array(n);
+  for (let i = 0; i < n; i++) enter[i] = (w ? w.enter[i] : 1) && !skip.has(b.day[i]) ? 1 : 0;
+  const mask = { enter, flat: w ? w.flat : new Uint8Array(n) };
+  gateCache.set(b, { key, w, mask });
+  return mask;
+}
+
 // Account rules (all in dollars, 0 = off):
 //   cfg.maxLoss  - max loss per trade: a stop that loses exactly this much
 //   cfg.dayLimit - daily loss limit: when the session's P&L (open trades included) reaches -dayLimit,
@@ -508,7 +533,7 @@ function backtest(b, sig, cfg) {
   let cash = cfg.capital, pos = 0, entry = 0, ei = 0, block = 0, bars = 0;
   let dayKey = null, dayStart = cfg.capital, halted = false, peak = cfg.capital;
   const rules = { limitDays: 0, blownAt: -1 };
-  const win = winMask(b, cfg);
+  const win = gateMask(b, cfg);
   const close = (i, px, why) => { cash -= side; trades.push({ side: pos, ei, xi: i, ep: entry, xp: px, why, pnl: (px - entry) * pos * mult - 2 * side }); pos = 0; };
   for (let i = 0; i < n; i++) {
     const tk = b.tday ? b.tday[i] : b.day[i];
@@ -825,7 +850,8 @@ const DEFAULT_WINDOWS = [ // Pacific time
   { name: "London", on: false, start: "00:00", end: "05:00" },
 ];
 const S = { datasets: [], ds: 0, strat: "z", params: {}, dir: "long", stop: 0, tp: 0,
-  winOn: true, winClose: true, windows: DEFAULT_WINDOWS.map(w => ({ ...w })), contract: "NQ", qty: 1, comm: 2.5, slip: 1, capital: 50000, maxLoss: 400, dayLimit: 2000, maxDD: 0, rulesV: 1, from: "", to: "", showAll: false };
+  winOn: true, winClose: true, windows: DEFAULT_WINDOWS.map(w => ({ ...w })),
+  noTrade: { CPI: true, FOMC: true, NFP: true, PPI: false }, customDays: "", contract: "NQ", qty: 1, comm: 2.5, slip: 1, capital: 50000, maxLoss: 400, dayLimit: 2000, maxDD: 0, rulesV: 1, from: "", to: "", showAll: false };
 try {
   const saved = JSON.parse(localStorage.getItem("nqlab-settings") || "{}");
   if (!saved.rulesV) delete saved.capital; // older saves predate the $50k account default
@@ -867,7 +893,34 @@ function fillStrategy() {
   document.querySelectorAll(".seg button").forEach(btn => btn.setAttribute("aria-pressed", btn.dataset.dir === S.dir));
 }
 
+// Release dates from data/events.csv (python fetch_events.py), served by serve_lab.py.
+let EVENTS = [];
+const EVENT_NAMES = { CPI: "CPI", FOMC: "FOMC", NFP: "Jobs report", PPI: "PPI" };
+function noTradeDays() {
+  const days = new Set(EVENTS.filter(e => S.noTrade[e.event]).map(e => e.date));
+  for (const d of (S.customDays || "").match(/\d{4}-\d{2}-\d{2}/g) || []) days.add(d);
+  return [...days].sort();
+}
+function fillEvents() {
+  const n = k => EVENTS.filter(e => e.event === k).length;
+  $("#evts").innerHTML = Object.keys(EVENT_NAMES).map(k => `<label class="check"><input type="checkbox" id="ev${k}" data-ev="${k}"${S.noTrade[k] ? " checked" : ""}> ${EVENT_NAMES[k]} <span class="n">${n(k) || ""}</span></label>`).join("");
+  $("#customDays").value = S.customDays || "";
+  const years = EVENTS.length ? `${EVENTS[0].date.slice(0, 4)}–${EVENTS[EVENTS.length - 1].date.slice(0, 4)}` : "";
+  $("#evHint").textContent = EVENTS.length
+    ? `Release dates ${years} from BLS and the Fed. No new trades open on a ticked day (US Eastern date); trades already open can still exit.`
+    : "Release dates aren't loaded. Run bash start.sh (or python fetch_events.py, then python serve_lab.py) to download them. Dates typed above still work.";
+}
+async function loadEvents() {
+  try {
+    const r = await fetch("api/events", { cache: "no-store" });
+    if (r.ok && (r.headers.get("content-type") || "").includes("json")) EVENTS = (await r.json()).filter(e => /^\d{4}-\d{2}-\d{2}$/.test(e.date) && EVENT_NAMES[e.event]).sort((a, b) => a.date < b.date ? -1 : 1);
+  } catch (e) {}
+}
+$("#evts").addEventListener("change", e => { const k = e.target.dataset.ev; if (!k) return; S.noTrade[k] = e.target.checked; render(); });
+$("#customDays").addEventListener("input", e => { S.customDays = e.target.value; schedule(); });
+
 function fillAccount() {
+  fillEvents();
   for (const k of ACCOUNT_FIELDS) $("#" + k).value = S[k];
   $("#contract").value = S.contract;
   $("#winOn").checked = S.winOn; $("#winClose").checked = S.winClose;
@@ -882,7 +935,7 @@ const PLOT_COLORS = ["--series", "--s2", "--s3", "--s4"];
 function runOne(b, strat, params, cfg) {
   if (strat.code) {
     if (strat.error) throw new Error(strat.error);
-    const r = Pine.run(strat.pine, b, params, { ...cfg, dir: S.dir, win: winMask(b, cfg) });
+    const r = Pine.run(strat.pine, b, params, { ...cfg, dir: S.dir, win: gateMask(b, cfg) });
     const ov = r.plots.slice(0, 4).map((p, k) => ({ label: p.label, data: p.data, color: PLOT_COLORS[k] }));
     return { r, ov, st: stats(b, r, cfg.capital) };
   }
@@ -895,7 +948,7 @@ function runOne(b, strat, params, cfg) {
 function cfgNow() {
   return { pv: PV[S.contract], qty: Math.max(1, Math.round(S.qty) || 1), cps: (+S.comm || 0) + (+S.slip || 0) * TICK * PV[S.contract], stop: (+S.stop || 0) / 100, tp: (+S.tp || 0) / 100, capital: Math.max(1, +S.capital || 50000),
     maxLoss: Math.max(0, +S.maxLoss || 0), dayLimit: Math.max(0, +S.dayLimit || 0), maxDD: Math.max(0, +S.maxDD || 0),
-    winOn: S.winOn, winClose: S.winClose, windows: S.windows.map(w => ({ ...w })) };
+    winOn: S.winOn, winClose: S.winClose, windows: S.windows.map(w => ({ ...w })), noTradeDays: noTradeDays() };
 }
 
 let pending = 0;
@@ -919,7 +972,7 @@ function render() {
     notice.innerHTML = `<b>${esc(strat.name)} stopped with an error.</b> ${esc(e.message)} <button class="link" type="button" data-fix="1">Open the script</button>. Showing buy &amp; hold meanwhile.`;
     cur = runOne(b, byId.bh, {}, cfg);
   }
-  const bench = backtest(b, new Int8Array(b.c.length).fill(1), { ...cfg, stop: 0, tp: 0, maxLoss: 0, dayLimit: 0, maxDD: 0, winOn: false });
+  const bench = backtest(b, new Int8Array(b.c.length).fill(1), { ...cfg, stop: 0, tp: 0, maxLoss: 0, dayLimit: 0, maxDD: 0, winOn: false, noTradeDays: [] });
 
   renderTiles(cur.st, cur.r, cfg);
   let raw = null;
@@ -960,6 +1013,13 @@ function renderRules(b, r, cfg, raw) {
     : on.length ? `New trades only start inside ${on.map(w => `${w.name} ${w.start}–${w.end}`).join(" or ")} PT. Outside them a trade can still exit.`
     : "No window is checked, so nothing will trade.";
   if (b.intraday && cfg.winOn) parts.push(`<b>Trading windows</b> <span>${on.length ? on.map(w => `${esc(w.name)} ${w.start}–${w.end}`).join(", ") + " PT" : "none"}${cfg.winClose ? `: <span class="pill">${r.trades.filter(t => t.why === "window").length} trades closed at window end</span>` : ""}</span>`);
+  if (cfg.noTradeDays.length) {
+    const inRange = new Set(b.day), hit = cfg.noTradeDays.filter(d => inRange.has(d));
+    const by = {};
+    for (const e of EVENTS) if (S.noTrade[e.event] && inRange.has(e.date)) by[e.event] = (by[e.event] || 0) + 1;
+    const detail = Object.entries(by).map(([k, v]) => `${EVENT_NAMES[k]} ${v}`).join(", ");
+    parts.push(`<b>No-trade days</b> <span class="pill">${hit.length} skipped${detail ? ` (${detail})` : ""}</span>`);
+  }
   if (!cfg.maxLoss && !cfg.dayLimit && !cfg.maxDD && !parts.length) { el.hidden = true; return; }
   if (cfg.maxLoss || cfg.dayLimit || cfg.maxDD) parts.push(`<b>Account rules</b>`);
   if (cfg.maxLoss) parts.push(`<span>Max ${usd(cfg.maxLoss)} per trade: <span class="pill">${r.trades.filter(t => t.why === "risk").length} trades capped</span></span>`);
@@ -1247,6 +1307,7 @@ $("#refresh").addEventListener("click", async () => {
   if (!S.datasets.length) S.datasets = [sampleDaily(), sample5m()];
   S.ds = Math.max(0, S.datasets.findIndex(d => !d.intraday));
   try { for (const rec of await pineStore.load()) registerPine(rec); } catch (e) {}
+  await loadEvents();
   if (!byId[S.strat]) S.strat = "z";
   fillDatasets(); fillAccount();
   const savedFrom = S.from, savedTo = S.to; setRange();

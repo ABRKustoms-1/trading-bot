@@ -19,6 +19,12 @@ else
   echo "==> Market data is fresh (downloaded $(date -r "$DAILY" '+%b %d %H:%M'))"
 fi
 
+EVENTS=data/events.csv
+if [ ! -f "$EVENTS" ] || [ -n "$(find "$EVENTS" -mtime +7)" ]; then
+  echo "==> Downloading CPI / FOMC / jobs report dates"
+  python3 fetch_events.py | head -6 || echo "    Couldn't download release dates; no-trade days will use the saved list"
+fi
+
 echo "==> Stopping any lab that is already running"
 pkill -f "^python[0-9.]* .*serve_lab\.py" 2>/dev/null && sleep 1
 

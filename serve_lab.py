@@ -62,6 +62,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, doc.encode(), "text/html; charset=utf-8")
         if self.path == "/pine.js":
             return self._send(200, (ROOT / "lab" / "pine.js").read_bytes(), "text/javascript; charset=utf-8")
+        if self.path == "/api/events":
+            f = ROOT / "data" / "events.csv"
+            if not f.exists():
+                return self._json([])
+            with f.open() as fh:
+                rows = [line.strip().split(",") for line in fh][1:]
+            return self._json([{"date": r[0], "event": r[1], "time": r[2]} for r in rows if len(r) >= 3])
         if self.path == "/api/strategies":
             files = sorted(STRATEGIES.glob("*.pine")) if STRATEGIES.is_dir() else []
             return self._json([{"id": f"pine:{f.stem}", "code": f.read_text(encoding="utf-8")} for f in files])

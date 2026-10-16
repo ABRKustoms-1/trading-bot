@@ -136,3 +136,11 @@ entered in Pacific time: Asia 3:00–7:00pm PT and New York 6:30am–1:00pm PT b
 trades when a window ends" checked, positions are flattened at each window's end. Chart labels,
 tooltips and the trade list show Pacific time; strategy logic (and Pine `hour`/`time()`) keeps
 using exchange/NY time as on TradingView.
+
+### No-trade days (CPI, FOMC, jobs report)
+
+`python fetch_events.py` downloads official release dates since 2016 into `data/events.csv`:
+CPI, the jobs report (NFP) and PPI from the BLS news-release archives, and FOMC decision days
+from the Federal Reserve (`start.sh` refreshes it weekly). In the lab's **No-trade days**
+panel, tick the events to skip (CPI, FOMC and jobs report by default) and add any extra dates.
+No new trades open on a skipped day (US Eastern date); trades already open can still exit.
