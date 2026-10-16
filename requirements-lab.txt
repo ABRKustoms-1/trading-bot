@@ -1,0 +1,5 @@
+# Packages for fetch_nq.py, backtest.py and the Strategy Lab (serve_lab.py needs none).
+yfinance>=0.2.54
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.7

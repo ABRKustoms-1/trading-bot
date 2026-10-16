@@ -1,0 +1,10 @@
+{
+  "name": "NQ trading bot",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "postCreateCommand": "pip install -r requirements-lab.txt",
+  "postAttachCommand": "bash start.sh",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": { "label": "NQ Strategy Lab", "onAutoForward": "openBrowser" }
+  }
+}

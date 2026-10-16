@@ -9,6 +9,7 @@ Only listens on localhost.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -110,8 +111,15 @@ def main() -> None:
     files = price_files()
     print(f"NQ Strategy Lab: http://localhost:{port}")
     print(f"  {len(files)} price files in {DATA}" if files else "  No data yet - click 'Refresh data' in the page, or run python fetch_nq.py")
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    webbrowser.open(f"http://localhost:{port}")
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        if e.errno in (48, 98):  # address already in use (macOS, Linux)
+            sys.exit(f"Port {port} is already in use - the lab is probably still running in another terminal.\n"
+                     f"Stop it with: bash start.sh (restarts it)   or start on another port: python serve_lab.py {port + 1}")
+        raise
+    if not os.environ.get("CODESPACES"):  # Codespaces opens the forwarded port itself
+        webbrowser.open(f"http://localhost:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

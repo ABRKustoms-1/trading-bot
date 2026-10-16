@@ -7,6 +7,20 @@ a ticker and produce a buy/hold/sell decision.
 This repo installs TradingAgents as a pinned dependency (see `requirements.txt`)
 instead of copying its source.
 
+## Quick start: NQ Strategy Lab (GitHub Codespaces or local)
+
+```
+bash start.sh
+```
+
+That one command gets the latest code, installs the packages it needs, downloads 10 years
+of NQ data into `data/nq/` when it's missing or more than 12 hours old, stops any lab
+already running and starts a fresh one on port 8000. In a Codespace it prints the link to
+open (also under the **Ports** tab); locally it opens your browser. Ctrl+C stops it.
+
+Codespaces made from a branch that has `.devcontainer/` run `bash start.sh` automatically
+each time you open them. Data in `data/nq/` stays between sessions until the Codespace is deleted.
+
 ## Setup
 
 Requires Python 3.11+.
