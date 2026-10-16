@@ -69,3 +69,11 @@ NQ=F futures (daily for the full window, hourly ~2y, 5m ~60d, 1m ~30d), the ^NDX
 QQQ, ^VXN, and FRED's NASDAQ100/VXNCLS series. It also writes and prints summary tables:
 overall stats (CAGR, volatility, Sharpe, max drawdown, best/worst day), per-year stats,
 month-of-year seasonality and day-of-week returns.
+
+## Backtesting
+
+`python backtest.py sma|rsi|orb [--contracts N] [--long-only] [--data daily|ndx|5m|1h|1m]`
+runs a strategy on the downloaded NQ data with real contract math ($20/point,
+commission + slippage per side) and prints net P&L, win rate, profit factor, max
+drawdown, Sharpe and P&L by year. Trades, equity curve and a chart go to `results/`.
+Add your own strategy as a function in `backtest.py` and register it in `STRATEGIES`.
