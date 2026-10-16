@@ -750,6 +750,7 @@ function makeEngine(b, cfg, opts) {
   const pyr = Math.max(1, opts.pyramiding || 0);
   const E = {
     lots: [], pend: [], exits: new Map(), closeReq: [], trades: [], cash: cfg.capital, allow: "all",
+    dayKey: null, dayStart: cfg.capital, halted: false, peak: cfg.capital, rules: { limitDays: 0, blownAt: -1 },
     eq: new Float64Array(n), held: new Int8Array(n), posHist: new Float64Array(n), inMkt: 0,
     pos() { let p = 0; for (const l of this.lots) p += l.side * l.qty; return p; },
     avgPrice() { let q = 0, s = 0; for (const l of this.lots) { q += l.qty; s += l.qty * l.price; } return q ? s / q : NaN; },
@@ -763,6 +764,7 @@ function makeEngine(b, cfg, opts) {
       return lab && al;
     },
     fillEntry(o, px, i) {
+      if (this.halted) return;
       const opp = this.lots.filter(l => l.side !== o.side);
       if (opp.length) this.closeLots(opp, px, i, "reverse");
       if (!this.allowed(o.side)) return;
@@ -808,9 +810,32 @@ function makeEngine(b, cfg, opts) {
       this.exits.delete(String(id));
     },
 
+    // Account rules from the lab: the price at which equity reaches a dollar level.
+    levelPrice(level) {
+      let net = 0, basis = 0;
+      for (const x of this.lots) { net += x.side * x.qty; basis += x.price * x.side * x.qty; }
+      return net ? ((level - this.cash) / pv + basis) / net : NaN;
+    },
+    halt(i, px, why) {
+      if (this.lots.length) this.closeLots([...this.lots], px, i, why);
+      this.halted = true; this.pend = []; this.closeReq = [];
+      if (why === "daily") this.rules.limitDays++; else this.rules.blownAt = i;
+    },
+    checkRules(i) {
+      if (!this.lots.length || this.halted) return;
+      const net = this.pos(), o = b.o[i], h = b.h[i], l = b.l[i], cands = [];
+      if (cfg.dayLimit > 0) cands.push([this.levelPrice(this.dayStart - cfg.dayLimit), "daily"]);
+      if (cfg.maxDD > 0) cands.push([this.levelPrice(this.peak - cfg.maxDD), "maxdd"]);
+      let sp = null;
+      for (const x of cands) if (x[0] === x[0] && (!sp || (net > 0 ? x[0] > sp[0] : x[0] < sp[0]))) sp = x;
+      if (sp && (net > 0 ? l <= sp[0] : h >= sp[0])) this.halt(i, net > 0 ? Math.min(sp[0], o) : Math.max(sp[0], o), sp[1]);
+    },
+
     // Orders placed on the previous bar fill on this bar.
     open(i) {
       const o = b.o[i], h = b.h[i], l = b.l[i];
+      const tk = exTime().tday[i];
+      if (tk !== this.dayKey) { this.dayKey = tk; this.dayStart = i > 0 ? this.eq[i - 1] : cfg.capital; if (this.rules.blownAt < 0) this.halted = false; }
       for (const r of this.closeReq) { const list = r === null ? [...this.lots] : this.lots.filter(x => x.id === r); if (list.length) this.closeLots(list, o, i, "close"); }
       this.closeReq = [];
       for (const p of this.pend.filter(p => p.market)) this.fillEntry(p, o, i);
@@ -822,9 +847,16 @@ function makeEngine(b, cfg, opts) {
         if (px === px) { this.pend.splice(this.pend.indexOf(p), 1); this.fillEntry(p, px, i); }
       }
       this.checkExits(i);
+      this.checkRules(i);
     },
     checkExits(i) {
       const o = b.o[i], h = b.h[i], l = b.l[i], upFirst = (h - o) < (o - l);
+      // Daily limit / max drawdown as stop prices for the whole position (computed once per bar).
+      const ruleStops = [];
+      if (this.lots.length && !this.halted) {
+        if (cfg.dayLimit > 0) ruleStops.push([this.levelPrice(this.dayStart - cfg.dayLimit), "daily"]);
+        if (cfg.maxDD > 0) ruleStops.push([this.levelPrice(this.peak - cfg.maxDD), "maxdd"]);
+      }
       for (const lot of [...this.lots]) {
         if (!this.lots.includes(lot)) continue;
         const s = lot.side, cands = [];
@@ -838,6 +870,8 @@ function makeEngine(b, cfg, opts) {
           }
           cands.push({ ex, stop, limit });
         }
+        if (cfg.maxLoss > 0) cands.push({ ex: null, stop: lot.price - s * cfg.maxLoss / (pv * lot.qty), limit: NaN, why: "risk" });
+        for (const [px, why] of ruleStops) if (px === px) cands.push({ ex: null, stop: px, limit: NaN, why });
         if (cfg.stop > 0 || cfg.tp > 0) cands.push({ ex: null, stop: cfg.stop > 0 ? lot.price * (1 - s * cfg.stop) : NaN, limit: cfg.tp > 0 ? lot.price * (1 + s * cfg.tp) : NaN });
         // Path through the bar: open, then whichever extreme is nearer the open, then the other.
         const tStop = (s > 0) === upFirst ? 2 : 1, tLim = 3 - tStop;
@@ -852,7 +886,15 @@ function makeEngine(b, cfg, opts) {
             if (sHit && (!lHit || tStop <= tLim)) f = { px: c.stop, why: "stop", t: tStop };
             else if (lHit) f = { px: c.limit, why: "target", t: tLim };
           }
-          if (f && (!fill || f.t < fill.t || (f.t === fill.t && f.why === "stop" && fill.why !== "stop"))) { f.c = c; fill = f; }
+          if (!f) continue;
+          f.kind = f.why;
+          if (f.kind === "stop" && c.why) f.why = c.why;
+          // Earliest along the bar's path wins; at the same moment a stop beats a target,
+          // and of two stops the tighter one is reached first.
+          const better = !fill || f.t < fill.t || (f.t === fill.t && (
+            (f.kind === "stop" && fill.kind !== "stop") ||
+            (f.kind === "stop" && fill.kind === "stop" && (s > 0 ? f.px > fill.px : f.px < fill.px))));
+          if (better) { f.c = c; fill = f; }
         }
         if (fill) {
           const ex = fill.c.ex;
@@ -861,6 +903,7 @@ function makeEngine(b, cfg, opts) {
           else if (ex && ex.qtyPct > 0) q = Math.min(lot.qty, Math.max(1, Math.round(lot.qty * ex.qtyPct / 100)));
           if (q < lot.qty) { this.closePart(lot, q, fill.px, i, fill.why); lot.qty -= q; lot.done.add(ex.id); }
           else this.closeLots([lot], fill.px, i, fill.why);
+          if (fill.why === "daily" || fill.why === "maxdd") { this.halt(i, fill.px, fill.why); return; }
         }
         if (this.lots.includes(lot)) for (const tr of Object.values(lot.trail)) {
           if (!tr.on && (s > 0 ? h >= tr.act : l <= tr.act)) { tr.on = true; tr.best = s > 0 ? h : l; }
@@ -874,10 +917,15 @@ function makeEngine(b, cfg, opts) {
         if (this.lots.length) this.closeLots([...this.lots], c, i, "session");
         this.pend = this.pend.filter(p => !p.market);
       }
+      const eqNow = this.cash + this.openProfit();
+      if (!this.halted && cfg.dayLimit > 0 && eqNow - this.dayStart <= -cfg.dayLimit) this.halt(i, c, "daily");
+      if (this.rules.blownAt < 0 && cfg.maxDD > 0 && this.cash + this.openProfit() <= this.peak - cfg.maxDD) this.halt(i, c, "maxdd");
+      if (this.halted) this.pend = [];
       const p = this.pos();
       this.held[i] = Math.sign(p); this.posHist[i] = p;
       if (p !== 0) this.inMkt++;
       this.eq[i] = this.cash + this.openProfit();
+      this.peak = Math.max(this.peak, this.eq[i]);
     },
     result() {
       const last = n - 1;
@@ -885,7 +933,7 @@ function makeEngine(b, cfg, opts) {
         const gross = (b.c[last] - l.price) * l.side * l.qty * pv;
         this.trades.push({ side: l.side, ei: l.bar, xi: last, ep: l.price, xp: b.c[last], qty: l.qty, why: "open", open: true, id: l.id, pnl: gross - 2 * cost * l.qty });
       }
-      return { eq: this.eq, held: this.held, trades: this.trades, exposure: this.inMkt / Math.max(1, n) };
+      return { eq: this.eq, held: this.held, trades: this.trades, rules: this.rules, exposure: this.inMkt / Math.max(1, n) };
     },
   };
   return E;

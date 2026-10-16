@@ -103,3 +103,13 @@ profit/loss ticks, trailing stops, partial exits and pyramiding. Orders fill at 
 bar's open like TradingView (or at the close with `process_orders_on_close=true`). Arrays,
 drawings and `request.security()` on other timeframes are not supported; the editor says
 which line it can't run.
+
+### Account rules (prop-firm style)
+
+The lab's **Account rules** panel enforces dollar limits on every strategy, built-in or Pine:
+**max loss per trade** (default $400), **daily loss limit** (default $2,000: closes everything
+and pauses until the next session at 18:00 NY) and an optional **trailing max drawdown**
+(breaching it ends trading for the rest of the test). Starting capital defaults to $50,000.
+Limits are checked against each bar's high and low and include open P&L, so a loss can only
+exceed a limit by the exit costs or a gap through the level. A summary above the stats shows
+how many trades were capped, how many days hit the daily limit and whether the drawdown was breached.
