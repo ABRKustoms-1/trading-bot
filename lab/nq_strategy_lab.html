@@ -1,0 +1,747 @@
+<title>NQ Strategy Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: control rail on the left (inputs), results column on the right: summary tiles, price, equity, comparisons, detail tables. */
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --field: #f1f3f6; --ink: #12161c; --ink-2: #4b5360; --muted: #7b8491;
+  --line: #e1e5eb; --grid: #edf0f4; --accent: #2456d3; --accent-ink: #ffffff; --accent-soft: #e6edfd;
+  --series: #2a78d6; --price: #1d232c; --long: #0f8a5f; --short: #d4552b;
+  --gain: #12805c; --loss: #c4352f; --warn-bg: #fff4dc; --warn-ink: #7a5300;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1216; --panel: #171b21; --field: #1f242c; --ink: #edf0f4; --ink-2: #b6bdc8; --muted: #8a929e;
+  --line: #29303a; --grid: #222831; --accent: #5b8cf0; --accent-ink: #0b1020; --accent-soft: #1d2a45;
+  --series: #3987e5; --price: #e6e9ee; --long: #2fbf8a; --short: #ef7a4a;
+  --gain: #3ccf94; --loss: #f06b66; --warn-bg: #3a2d10; --warn-ink: #f3cf7a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1216; --panel: #171b21; --field: #1f242c; --ink: #edf0f4; --ink-2: #b6bdc8; --muted: #8a929e;
+  --line: #29303a; --grid: #222831; --accent: #5b8cf0; --accent-ink: #0b1020; --accent-soft: #1d2a45;
+  --series: #3987e5; --price: #e6e9ee; --long: #2fbf8a; --short: #ef7a4a;
+  --gain: #3ccf94; --loss: #f06b66; --warn-bg: #3a2d10; --warn-ink: #f3cf7a; color-scheme: dark }
+
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans) }
+.app { display: grid; grid-template-columns: 310px minmax(0, 1fr); gap: 18px; align-items: start;
+  padding-block: 18px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  max-width: 1500px; margin: 0 auto }
+@media (max-width: 900px) { .app { grid-template-columns: minmax(0, 1fr) } }
+
+.rail { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 14px }
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 8px }
+.brand h1 { margin: 0; font: 600 17px/1.2 var(--sans); letter-spacing: -0.01em }
+.brand span { font: 12px var(--mono); color: var(--muted) }
+.sec { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line) }
+.sec h2 { margin: 0; font: 600 11px/1 var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted) }
+.row { display: grid; grid-template-columns: 1fr 112px; gap: 10px; align-items: center }
+.row label { color: var(--ink-2) }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+.pair label { display: flex; flex-direction: column; gap: 4px; color: var(--ink-2); font-size: 12px }
+input, select, button { font: inherit; color: inherit }
+input[type=number], input[type=date], select { width: 100%; min-width: 0; background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font-family: var(--mono); font-size: 13px }
+select { font-family: var(--sans); font-size: 14px }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+.hint { margin: 0; color: var(--muted); font-size: 12.5px }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 7px; overflow: hidden }
+.seg button { background: var(--field); border: 0; padding: 8px 4px; cursor: pointer; color: var(--ink-2); font-size: 13px }
+.seg button + button { border-left: 1px solid var(--line) }
+.seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); font-weight: 500 }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 7px; padding: 9px 12px; font-weight: 500; cursor: pointer }
+.btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line) }
+.filebtn { position: relative; overflow: hidden }
+.filebtn input { position: absolute; inset: 0; opacity: 0; cursor: pointer }
+.check { display: flex; gap: 8px; align-items: center; color: var(--ink-2) }
+
+.main { display: flex; flex-direction: column; gap: 18px; min-width: 0 }
+.notice { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 10px 14px; font-size: 13.5px }
+.notice code { font-family: var(--mono); font-size: 12.5px }
+.tiles { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden }
+@media (max-width: 1350px) { .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)) } }
+@media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)) } }
+.tile { background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 3px }
+.tile .k { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted) }
+.tile .v { font: 500 20px/1.2 var(--mono); font-variant-numeric: tabular-nums }
+.tile .s { font-size: 12px; color: var(--muted) }
+.pos { color: var(--gain) } .neg { color: var(--loss) }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0 }
+.card h3 { margin: 0; font: 600 16px/1.3 var(--sans); text-wrap: balance }
+.card .sub { margin: 4px 0 10px; color: var(--muted); font-size: 13px }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); margin-bottom: 6px }
+.legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px }
+.legend i.dash { border-top-style: dashed }
+.legend i.tri { width: 0; border: 5px solid transparent; border-bottom: 9px solid; border-top: 0; margin-top: -4px }
+.legend i.dot { width: 8px; height: 8px; border: 0; border-radius: 50%; }
+.chart { position: relative; width: 100%; touch-action: pan-y }
+.chart canvas { position: absolute; inset: 0; width: 100%; height: 100% }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; font: 12px/1.5 var(--mono); box-shadow: 0 4px 14px rgb(0 0 0 / 0.12); white-space: nowrap; z-index: 2; font-variant-numeric: tabular-nums }
+.tip b { font-family: var(--sans); font-weight: 600 }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px }
+@media (max-width: 1150px) { .split { grid-template-columns: minmax(0, 1fr) } }
+
+.tbl { overflow-x: auto }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums }
+th { text-align: right; font: 500 12px var(--sans); color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap }
+td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--grid); font-family: var(--mono); font-size: 13px; white-space: nowrap }
+th:first-child, td:first-child { text-align: left }
+tr.cur td { background: var(--accent-soft) }
+.link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font: 13px var(--mono) }
+td.na { color: var(--muted); font-family: var(--sans) }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 99px; font: 500 11.5px var(--sans); border: 1px solid currentColor }
+.more { margin-top: 10px }
+.drop { position: fixed; inset: 0; background: color-mix(in srgb, var(--accent) 18%, transparent); border: 3px dashed var(--accent); display: grid; place-items: center; font: 600 20px var(--sans); color: var(--accent); z-index: 20 }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important } }
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><h1>NQ Strategy Lab</h1><span>$20 / pt</span></div>
+
+    <div class="sec">
+      <h2>Data</h2>
+      <select id="ds" aria-label="Dataset"></select>
+      <div class="pair">
+        <label>From<input type="date" id="from"></label>
+        <label>To<input type="date" id="to"></label>
+      </div>
+      <div class="pair">
+        <span class="btn ghost filebtn">Load CSV files<input type="file" id="file" accept=".csv,text/csv" multiple></span>
+        <button class="btn ghost" id="forget" type="button">Forget files</button>
+      </div>
+      <p class="hint">Use the CSVs from <code>python fetch_nq.py</code> (data/nq/), or any CSV with Date, Open, High, Low, Close, Volume. Drop files anywhere on the page. Files stay in this browser.</p>
+    </div>
+
+    <div class="sec">
+      <h2>Strategy</h2>
+      <select id="strat" aria-label="Strategy"></select>
+      <p class="hint" id="desc"></p>
+      <div id="params" style="display:flex;flex-direction:column;gap:8px"></div>
+      <div class="seg" role="group" aria-label="Direction">
+        <button type="button" data-dir="long">Long only</button>
+        <button type="button" data-dir="both">Long + short</button>
+        <button type="button" data-dir="short">Short only</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>Risk exits</h2>
+      <div class="row"><label for="stop">Stop loss %</label><input type="number" id="stop" min="0" step="0.25"></div>
+      <div class="row"><label for="tp">Take profit %</label><input type="number" id="tp" min="0" step="0.25"></div>
+      <label class="check"><input type="checkbox" id="rth"> Flat outside 9:30–16:00 NY (intraday)</label>
+      <p class="hint">0 turns a stop or target off. Checked against each bar's high and low; if both hit in one bar, the stop counts. After a stop or target, the strategy waits for its signal to change before re-entering.</p>
+    </div>
+
+    <div class="sec">
+      <h2>Account &amp; costs</h2>
+      <div class="row"><label for="contract">Contract</label><select id="contract"><option value="NQ">NQ ($20)</option><option value="MNQ">MNQ ($2)</option></select></div>
+      <div class="row"><label for="qty">Contracts</label><input type="number" id="qty" min="1" step="1"></div>
+      <div class="row"><label for="comm">Commission / side</label><input type="number" id="comm" min="0" step="0.1"></div>
+      <div class="row"><label for="slip">Slippage ticks / side</label><input type="number" id="slip" min="0" step="0.5"></div>
+      <div class="row"><label for="capital">Starting capital</label><input type="number" id="capital" min="1000" step="5000"></div>
+      <p class="hint">Fills at the close of the bar that gives the signal. A tick is 0.25 pt.</p>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="notice" id="notice" hidden></div>
+    <div class="tiles" id="tiles"></div>
+
+    <section class="card">
+      <h3>Price and trades</h3>
+      <p class="sub" id="priceSub"></p>
+      <div class="legend" id="priceLegend"></div>
+      <div class="chart" id="priceChart" style="height:360px"></div>
+    </section>
+
+    <section class="card">
+      <h3>Account equity</h3>
+      <p class="sub">Strategy equity against holding the same number of contracts long the whole time.</p>
+      <div class="legend"><span><i style="color:var(--series)"></i>Strategy</span><span><i class="dash" style="color:var(--muted)"></i>Buy &amp; hold, same size</span></div>
+      <div class="chart" id="eqChart" style="height:240px"></div>
+      <p class="sub" style="margin:12px 0 6px">Drawdown: how far equity sits below its previous high</p>
+      <div class="chart" id="ddChart" style="height:120px"></div>
+    </section>
+
+    <section class="card">
+      <h3>Every strategy, same settings</h3>
+      <p class="sub">Each rule at its default inputs with your direction, exits, size and costs. Pick one to load it.</p>
+      <div class="tbl"><table id="cmp"></table></div>
+    </section>
+
+    <div class="split">
+      <section class="card"><h3>By year</h3><p class="sub">P&amp;L and return on equity at the start of each year.</p><div class="tbl"><table id="years"></table></div></section>
+      <section class="card"><h3>Trades</h3><p class="sub" id="tradeSub"></p><div class="tbl"><table id="trades"></table></div><button class="btn ghost more" id="moreTrades" type="button" hidden>Show all trades</button></section>
+    </div>
+  </main>
+</div>
+<div class="drop" id="drop" hidden>Drop CSV files to load them</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const TICK = 0.25, PV = { NQ: 20, MNQ: 2 };
+const RTH_OPEN = 570, RTH_FLAT = 955; // minutes after midnight NY: 9:30 and 15:55
+
+// ---------------------------------------------------------------- data
+const nyFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+function finalize(rows, name, sample) {
+  rows.sort((a, b) => a.t - b.t);
+  rows = rows.filter((r, i) => i === 0 || r.t !== rows[i - 1].t);
+  if (rows.length < 30) throw new Error(`${name}: only ${rows.length} usable rows`);
+  const n = rows.length, gaps = [];
+  for (let i = 1; i < Math.min(n, 500); i++) gaps.push(rows[i].t - rows[i - 1].t);
+  gaps.sort((a, b) => a - b);
+  const intraday = gaps[gaps.length >> 1] < 20 * 3600e3;
+  const b = { name, sample: !!sample, intraday, t: new Float64Array(n), o: new Float64Array(n), h: new Float64Array(n), l: new Float64Array(n), c: new Float64Array(n), v: new Float64Array(n), day: new Array(n), mod: new Int16Array(n) };
+  rows.forEach((r, i) => {
+    b.o[i] = r.o; b.h[i] = Math.max(r.h, r.o, r.c); b.l[i] = Math.min(r.l, r.o, r.c); b.c[i] = r.c; b.v[i] = r.v || 0;
+    if (intraday) {
+      const p = {}; for (const x of nyFmt.formatToParts(r.t)) p[x.type] = x.value;
+      b.day[i] = `${p.year}-${p.month}-${p.day}`; b.mod[i] = (+p.hour % 24) * 60 + +p.minute; b.t[i] = r.t;
+    } else {
+      b.day[i] = r.raw ? r.raw.slice(0, 10) : new Date(r.t).toISOString().slice(0, 10);
+      b.t[i] = Date.parse(b.day[i] + "T00:00:00Z");
+    }
+  });
+  b.interval = intraday ? (gaps[gaps.length >> 1] / 60e3) + "m" : "daily";
+  return b;
+}
+
+function parseTime(s) {
+  s = s.trim().replace(/"/g, "");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return Date.parse(s + "T00:00:00Z");
+  if (/^\d{9,10}$/.test(s)) return +s * 1000;
+  if (/^\d{12,13}$/.test(s)) return +s;
+  return Date.parse(s.replace(" ", "T"));
+}
+
+function parseCSV(text, name) {
+  const lines = text.split(/\r?\n/);
+  const hi = lines.findIndex(l => /(^|,)\s*"?close"?\s*(,|$)/i.test(l));
+  if (hi < 0) throw new Error(`${name}: no "Close" column found`);
+  const head = lines[hi].split(",").map(s => s.trim().replace(/"/g, "").toLowerCase());
+  const col = k => head.indexOf(k);
+  let ti = head.findIndex(h => ["date", "datetime", "time", "timestamp", "date/time"].includes(h));
+  if (ti < 0) ti = 0;
+  const oi = col("open"), hi2 = col("high"), li = col("low"), ci = col("close"), vi = col("volume");
+  const rows = [];
+  for (let k = hi + 1; k < lines.length; k++) {
+    const cells = lines[k].split(",");
+    if (cells.length <= ci) continue;
+    const t = parseTime(cells[ti] || ""), c = parseFloat(cells[ci]);
+    if (!isFinite(t) || !isFinite(c)) continue;
+    const num = (i, d) => { const v = i >= 0 ? parseFloat(cells[i]) : NaN; return isFinite(v) ? v : d; };
+    rows.push({ t, raw: cells[ti].trim().replace(/"/g, ""), o: num(oi, c), h: num(hi2, c), l: num(li, c), c, v: num(vi, 0) });
+  }
+  return finalize(rows, name.replace(/\.csv$/i, ""));
+}
+
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function gauss(r) { let u = 0; while (!u) u = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); }
+
+function sampleDaily() {
+  const r = rng(11), rows = []; let c = 4800, vol = 0.011;
+  for (let t = Date.UTC(2016, 9, 17); t <= Date.UTC(2026, 9, 15); t += 864e5) {
+    const wd = new Date(t).getUTCDay(); if (wd === 0 || wd === 6) continue;
+    vol = Math.max(0.006, Math.min(0.05, vol * 0.97 + 0.011 * 0.03 + (r() < 0.004 ? 0.02 : 0)));
+    const o = c * (1 + gauss(r) * vol * 0.25), nc = o * (1 + 0.0005 + gauss(r) * vol);
+    rows.push({ t, o, h: Math.max(o, nc) * (1 + Math.abs(gauss(r)) * vol * 0.4), l: Math.min(o, nc) * (1 - Math.abs(gauss(r)) * vol * 0.4), c: nc, v: 3e5 + r() * 3e5 });
+    c = nc;
+  }
+  return finalize(rows, "Sample NQ daily (simulated)", true);
+}
+function sample5m() {
+  const r = rng(5), rows = []; let c = 24800;
+  for (let d = Date.UTC(2026, 7, 17); d <= Date.UTC(2026, 9, 15); d += 864e5) {
+    const wd = new Date(d).getUTCDay(); if (wd === 0 || wd === 6) continue;
+    for (let m = 0; m < 1440; m += 5) {
+      if (m >= 1020 && m < 1080) continue; // 17:00-18:00 NY maintenance break
+      const rth = m >= RTH_OPEN && m < 960, vol = rth ? (m < 600 ? 0.0016 : 0.0009) : 0.0004;
+      const o = c, nc = o * (1 + gauss(r) * vol);
+      rows.push({ t: d + (m + 240) * 60e3, o, h: Math.max(o, nc) * (1 + Math.abs(gauss(r)) * vol * 0.5), l: Math.min(o, nc) * (1 - Math.abs(gauss(r)) * vol * 0.5), c: nc, v: (rth ? 4000 : 600) * (0.5 + r()) });
+      c = nc;
+    }
+  }
+  return finalize(rows, "Sample NQ 5-minute (simulated)", true);
+}
+
+function sliceBars(b, from, to) {
+  let i0 = 0, i1 = b.c.length - 1;
+  if (from) while (i0 < i1 && b.day[i0] < from) i0++;
+  if (to) while (i1 > i0 && b.day[i1] > to) i1--;
+  const s = { ...b }; i1++;
+  for (const k of ["t", "o", "h", "l", "c", "v", "mod"]) s[k] = b[k].subarray(i0, i1);
+  s.day = b.day.slice(i0, i1);
+  return s;
+}
+
+// ---------------------------------------------------------------- indicators
+const nanArr = n => new Float64Array(n).fill(NaN);
+function sma(a, n) { const o = nanArr(a.length); let s = 0; for (let i = 0; i < a.length; i++) { s += a[i]; if (i >= n) s -= a[i - n]; if (i >= n - 1) o[i] = s / n; } return o; }
+function ema(a, n) { const o = nanArr(a.length), k = 2 / (n + 1); let e = NaN; for (let i = 0; i < a.length; i++) { e = i === 0 ? a[0] : a[i] * k + e * (1 - k); if (i >= n - 1) o[i] = e; } return o; }
+function rstd(a, n) { const o = nanArr(a.length); let s = 0, q = 0; for (let i = 0; i < a.length; i++) { s += a[i]; q += a[i] * a[i]; if (i >= n) { s -= a[i - n]; q -= a[i - n] * a[i - n]; } if (i >= n - 1) { const m = s / n; o[i] = Math.sqrt(Math.max(0, q / n - m * m)); } } return o; }
+function rsiF(c, n) { const o = nanArr(c.length); let g = 0, l = 0; for (let i = 1; i < c.length; i++) { const d = c[i] - c[i - 1]; if (i <= n) { g += Math.max(d, 0) / n; l += Math.max(-d, 0) / n; } else { g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; } if (i >= n) o[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l); } return o; }
+function priorMax(a, n) { const o = nanArr(a.length); for (let i = n; i < a.length; i++) { let m = -Infinity; for (let j = i - n; j < i; j++) if (a[j] > m) m = a[j]; o[i] = m; } return o; }
+function priorMin(a, n) { const o = nanArr(a.length); for (let i = n; i < a.length; i++) { let m = Infinity; for (let j = i - n; j < i; j++) if (a[j] < m) m = a[j]; o[i] = m; } return o; }
+
+// Enter/exit state machine shared by the rule-based strategies.
+function machine(n, dir, le, lx, se, sx) {
+  const s = new Int8Array(n); let p = 0;
+  for (let i = 0; i < n; i++) {
+    if (p === 1 && lx(i)) p = 0; else if (p === -1 && sx(i)) p = 0;
+    if (p === 0) { if (dir !== "short" && le(i)) p = 1; else if (dir !== "long" && se(i)) p = -1; }
+    s[i] = p;
+  }
+  return s;
+}
+
+// ---------------------------------------------------------------- strategies
+// signal(b, p, dir) returns { sig: desired position per bar (1, 0, -1), ov: overlay lines for the price chart }
+const STRATS = [
+  { id: "bh", name: "Buy & hold", desc: "Enter on the first bar and hold to the end. The baseline everything else has to beat.", params: [],
+    signal: (b, p, dir) => ({ sig: new Int8Array(b.c.length).fill(dir === "short" ? -1 : 1), ov: [] }) },
+  { id: "ma", name: "Moving-average crossover", desc: "Long while the fast average is above the slow one, short while it is below.",
+    params: [{ id: "fast", label: "Fast length", def: 20 }, { id: "slow", label: "Slow length", def: 50 }, { id: "kind", label: "Average", def: "SMA", options: ["SMA", "EMA"] }],
+    signal(b, p) { const f = p.kind === "EMA" ? ema : sma, a = f(b.c, p.fast), z = f(b.c, p.slow);
+      return { sig: Int8Array.from(b.c, (_, i) => isNaN(z[i]) ? 0 : a[i] > z[i] ? 1 : -1), ov: [{ label: `${p.kind} ${p.fast}`, data: a }, { label: `${p.kind} ${p.slow}`, data: z, dash: true }] }; } },
+  { id: "trend", name: "Trend filter", desc: "Long while price closes above its long moving average, short while below.",
+    params: [{ id: "len", label: "Average length", def: 200 }],
+    signal(b, p) { const m = sma(b.c, p.len); return { sig: Int8Array.from(b.c, (c, i) => isNaN(m[i]) ? 0 : c > m[i] ? 1 : -1), ov: [{ label: `SMA ${p.len}`, data: m }] }; } },
+  { id: "don", name: "Donchian breakout", desc: "Long on a close above the highest high of the last N bars, out on a close below the lowest low of the last M bars. Shorts mirror.",
+    params: [{ id: "entry", label: "Entry lookback", def: 20 }, { id: "exit", label: "Exit lookback", def: 10 }],
+    signal(b, p, dir) { const H = priorMax(b.h, p.entry), L = priorMin(b.l, p.entry), xh = priorMax(b.h, p.exit), xl = priorMin(b.l, p.exit), c = b.c;
+      return { sig: machine(c.length, dir, i => c[i] > H[i], i => c[i] < xl[i], i => c[i] < L[i], i => c[i] > xh[i]), ov: [{ label: `${p.entry}-bar high`, data: H, dash: true }, { label: `${p.entry}-bar low`, data: L, dash: true }] }; } },
+  { id: "rsi", name: "RSI mean reversion", desc: "Long when RSI drops below the entry level, out when it climbs above the exit level. Shorts mirror (above 100 − entry, out below 100 − exit).",
+    params: [{ id: "len", label: "RSI length", def: 2 }, { id: "entry", label: "Entry level", def: 10 }, { id: "exit", label: "Exit level", def: 70 }],
+    signal(b, p, dir) { const r = rsiF(b.c, p.len);
+      return { sig: machine(r.length, dir, i => r[i] < p.entry, i => r[i] > p.exit, i => r[i] > 100 - p.entry, i => r[i] < 100 - p.exit), ov: [] }; } },
+  { id: "z", name: "Z-score (rolling SD)", desc: "z = (close − SMA) / stdev. Fade: long when z drops below −entry, exit once z climbs back to −exit. Follow: long when z rises above +entry, exit when it falls back under +exit. Shorts mirror.",
+    params: [{ id: "len", label: "Rolling lookback", def: 20 }, { id: "entry", label: "Entry |z|", def: 2, step: 0.1 }, { id: "exit", label: "Exit |z|", def: 0, step: 0.1 }, { id: "mode", label: "Mode", def: "Fade", options: ["Fade", "Follow"] }],
+    signal(b, p, dir) { const m = sma(b.c, p.len), sd = rstd(b.c, p.len), z = Float64Array.from(b.c, (c, i) => sd[i] > 0 ? (c - m[i]) / sd[i] : NaN), E = p.entry, X = p.exit;
+      const sig = p.mode === "Fade" ? machine(z.length, dir, i => z[i] < -E, i => z[i] > -X, i => z[i] > E, i => z[i] < X)
+                                    : machine(z.length, dir, i => z[i] > E, i => z[i] < X, i => z[i] < -E, i => z[i] > -X);
+      return { sig, ov: [{ label: `SMA ${p.len}`, data: m }, { label: `±${E} SD`, data: Float64Array.from(m, (v, i) => v + E * sd[i]), dash: true }, { data: Float64Array.from(m, (v, i) => v - E * sd[i]), dash: true }] }; } },
+  { id: "tsmom", name: "Time-series momentum", desc: "Long when price is higher than it was N bars ago, short when lower. 252 daily bars is about one year.",
+    params: [{ id: "len", label: "Lookback (bars)", def: 252 }],
+    signal(b, p) { const c = b.c; return { sig: Int8Array.from(c, (v, i) => i < p.len ? 0 : v > c[i - p.len] ? 1 : -1), ov: [] }; } },
+  { id: "orb", name: "Opening range breakout", intraday: true, desc: "Marks the high and low of the first minutes after 9:30 NY. Long on a close above, short on a close below, out on a close beyond the other side, flat by 15:55. One trade a day.",
+    params: [{ id: "mins", label: "Range minutes", def: 15 }],
+    signal(b, p, dir) {
+      const n = b.c.length, sig = new Int8Array(n), H = nanArr(n), L = nanArr(n);
+      let day = null, hi = -Infinity, lo = Infinity, pos = 0, traded = false;
+      for (let i = 0; i < n; i++) {
+        const m = b.mod[i];
+        if (b.day[i] !== day) { day = b.day[i]; hi = -Infinity; lo = Infinity; pos = 0; traded = false; }
+        if (m < RTH_OPEN || m >= 960) { pos = 0; continue; }
+        if (m < RTH_OPEN + p.mins) { hi = Math.max(hi, b.h[i]); lo = Math.min(lo, b.l[i]); continue; }
+        if (!isFinite(hi)) continue;
+        H[i] = hi; L[i] = lo; const c = b.c[i];
+        if (m >= RTH_FLAT) pos = 0;
+        else if (pos === 0 && !traded) { if (c > hi && dir !== "short") pos = 1; else if (c < lo && dir !== "long") pos = -1; traded = pos !== 0; }
+        else if ((pos === 1 && c < lo) || (pos === -1 && c > hi)) pos = 0;
+        sig[i] = pos;
+      }
+      return { sig, ov: [{ label: "Opening range", data: H, dash: true }, { data: L, dash: true }] };
+    } },
+  { id: "vwap", name: "Session VWAP bands", intraday: true, desc: "VWAP and volume-weighted SD bands that reset at 9:30 NY. Long on a close below the lower band, short above the upper band, out when price returns to VWAP, flat by 15:55.",
+    params: [{ id: "k", label: "Band width (SD)", def: 2, step: 0.1 }, { id: "wait", label: "Skip first minutes", def: 15 }],
+    signal(b, p, dir) {
+      const n = b.c.length, V = nanArr(n), U = nanArr(n), D = nanArr(n), sig = new Int8Array(n);
+      let day = null, sv = 0, spv = 0, sp2v = 0, pos = 0;
+      for (let i = 0; i < n; i++) {
+        const m = b.mod[i];
+        if (b.day[i] !== day) { day = b.day[i]; sv = spv = sp2v = 0; pos = 0; }
+        if (m < RTH_OPEN || m >= 960) { pos = 0; continue; }
+        const tp = (b.h[i] + b.l[i] + b.c[i]) / 3, w = b.v[i] > 0 ? b.v[i] : 1;
+        sv += w; spv += tp * w; sp2v += tp * tp * w;
+        const vw = spv / sv, sd = Math.sqrt(Math.max(0, sp2v / sv - vw * vw)), c = b.c[i];
+        V[i] = vw; U[i] = vw + p.k * sd; D[i] = vw - p.k * sd;
+        if (m >= RTH_FLAT) pos = 0;
+        else if (pos === 1 && c >= vw) pos = 0;
+        else if (pos === -1 && c <= vw) pos = 0;
+        else if (pos === 0 && m >= RTH_OPEN + p.wait) { if (c < D[i] && dir !== "short") pos = 1; else if (c > U[i] && dir !== "long") pos = -1; }
+        sig[i] = pos;
+      }
+      return { sig, ov: [{ label: "VWAP", data: V }, { label: `±${p.k} SD`, data: U, dash: true }, { data: D, dash: true }] };
+    } },
+];
+const byId = Object.fromEntries(STRATS.map(s => [s.id, s]));
+const defaults = s => Object.fromEntries(s.params.map(p => [p.id, p.def]));
+
+// ---------------------------------------------------------------- engine
+function backtest(b, sig, cfg) {
+  const n = b.c.length, eq = new Float64Array(n), held = new Int8Array(n), trades = [];
+  const mult = cfg.pv * cfg.qty, side = cfg.cps * cfg.qty;
+  let cash = cfg.capital, pos = 0, entry = 0, ei = 0, block = 0, bars = 0;
+  const close = (i, px, why) => { cash -= side; trades.push({ side: pos, ei, xi: i, ep: entry, xp: px, why, pnl: (px - entry) * pos * mult - 2 * side }); pos = 0; };
+  for (let i = 0; i < n; i++) {
+    if (i > 0 && pos !== 0) {
+      bars++;
+      let px = null, why = "";
+      if (cfg.stop > 0) { const sp = entry * (1 - pos * cfg.stop); if (pos > 0 ? b.l[i] <= sp : b.h[i] >= sp) { px = pos > 0 ? Math.min(sp, b.o[i]) : Math.max(sp, b.o[i]); why = "stop"; } }
+      if (px === null && cfg.tp > 0) { const tp = entry * (1 + pos * cfg.tp); if (pos > 0 ? b.h[i] >= tp : b.l[i] <= tp) { px = pos > 0 ? Math.max(tp, b.o[i]) : Math.min(tp, b.o[i]); why = "target"; } }
+      if (px !== null) { cash += (px - b.c[i - 1]) * pos * mult; block = pos; close(i, px, why); }
+      else cash += (b.c[i] - b.c[i - 1]) * pos * mult;
+    }
+    let want = sig[i];
+    if (block) { if (want === block) want = 0; else block = 0; }
+    if (want !== pos) {
+      if (pos !== 0) close(i, b.c[i], "signal");
+      if (want !== 0) { pos = want; entry = b.c[i]; ei = i; cash -= side; }
+    }
+    held[i] = pos; eq[i] = cash;
+  }
+  if (pos !== 0) trades.push({ side: pos, ei, xi: n - 1, ep: entry, xp: b.c[n - 1], why: "open", open: true, pnl: (b.c[n - 1] - entry) * pos * mult - 2 * side });
+  return { eq, held, trades, exposure: bars / Math.max(1, n - 1) };
+}
+
+function stats(b, r, capital) {
+  const n = b.c.length, eq = r.eq, end = eq[n - 1], net = end - capital;
+  const years = (b.t[n - 1] - b.t[0]) / (365.25 * 864e5);
+  let peak = -Infinity, mdd = 0, mddUsd = 0, mddI = 0, wiped = -1;
+  const dd = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    peak = Math.max(peak, eq[i]); dd[i] = peak > 0 ? Math.max(-1, eq[i] / peak - 1) : -1;
+    if (dd[i] < mdd) { mdd = dd[i]; mddI = i; } mddUsd = Math.min(mddUsd, eq[i] - peak);
+    if (wiped < 0 && eq[i] <= 0) wiped = i;
+  }
+  const dayPnl = []; let last = capital;
+  for (let i = 0; i < n; i++) if (i === n - 1 || b.day[i + 1] !== b.day[i]) { dayPnl.push(eq[i] - last); last = eq[i]; }
+  const mean = dayPnl.reduce((a, x) => a + x, 0) / dayPnl.length;
+  const sd = Math.sqrt(dayPnl.reduce((a, x) => a + (x - mean) ** 2, 0) / Math.max(1, dayPnl.length - 1));
+  const T = r.trades, wins = T.filter(t => t.pnl > 0), losses = T.filter(t => t.pnl <= 0);
+  const gw = wins.reduce((a, t) => a + t.pnl, 0), gl = -losses.reduce((a, t) => a + t.pnl, 0);
+  return {
+    net, end, dd, mdd, mddUsd, mddI, wiped,
+    cagr: end <= 0 ? -1 : years > 0.08 ? Math.pow(end / capital, 1 / years) - 1 : NaN,
+    sharpe: sd > 0 ? mean / sd * Math.sqrt(252) : NaN,
+    trades: T.length, win: T.length ? wins.length / T.length : NaN,
+    pf: gl > 0 ? gw / gl : gw > 0 ? Infinity : NaN,
+    avg: T.length ? (gw - gl) / T.length : NaN,
+    avgW: wins.length ? gw / wins.length : NaN, avgL: losses.length ? -gl / losses.length : NaN,
+    exposure: r.exposure,
+  };
+}
+
+// ---------------------------------------------------------------- formatting
+const usd = (v, sign) => !isFinite(v) ? "–" : (v < 0 ? "−" : sign && v > 0 ? "+" : "") + "$" + Math.abs(Math.round(v)).toLocaleString("en-US");
+const pct = (v, sign, d = 1) => !isFinite(v) ? "–" : (v < 0 ? "−" : sign && v > 0 ? "+" : "") + Math.abs(v * 100).toFixed(d) + "%";
+const num = (v, d = 2) => !isFinite(v) ? (v === Infinity ? "∞" : "–") : (v < 0 ? "−" : "") + Math.abs(v).toFixed(d);
+const px = v => isFinite(v) ? v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "–";
+const cls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
+function compact(v) { const a = Math.abs(v), s = v < 0 ? "−" : ""; if (a >= 1e6) return s + (a / 1e6).toFixed(a >= 1e7 ? 0 : 1) + "M"; if (a >= 1e3) return s + (a / 1e3).toFixed(a >= 1e5 ? 0 : 1).replace(/\.0$/, "") + "k"; return s + (+a.toFixed(2)); }
+function when(b, i) { const d = b.day[i]; const s = `${MON[+d.slice(5, 7) - 1]} ${+d.slice(8, 10)}, ${d.slice(0, 4)}`; return b.intraday ? `${s} ${String(b.mod[i] / 60 | 0).padStart(2, "0")}:${String(b.mod[i] % 60).padStart(2, "0")}` : s; }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ---------------------------------------------------------------- charts
+const cssv = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+function niceTicks(lo, hi, count) {
+  const span = hi - lo || Math.abs(hi) || 1, raw = span / count, mag = 10 ** Math.floor(Math.log10(raw)), e = raw / mag;
+  const step = (e >= 7.5 ? 10 : e >= 3.5 ? 5 : e >= 1.5 ? 2 : 1) * mag, out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-6; v += step) out.push(+v.toPrecision(12));
+  return out;
+}
+function xTicks(b, W) {
+  const n = b.c.length, span = (b.t[n - 1] - b.t[0]) / 864e5;
+  let key, lab;
+  if (span > 3 * 365) { key = i => b.day[i].slice(0, 4); lab = i => b.day[i].slice(0, 4); }
+  else if (span > 100) { key = i => b.day[i].slice(0, 7); lab = i => { const m = +b.day[i].slice(5, 7); return m === 1 ? b.day[i].slice(0, 4) : MON[m - 1]; }; }
+  else if (span > 4 || !b.intraday) { key = i => b.day[i]; lab = i => `${MON[+b.day[i].slice(5, 7) - 1]} ${+b.day[i].slice(8, 10)}`; }
+  else { key = i => b.day[i] + (b.mod[i] / 60 | 0); lab = i => `${b.mod[i] / 60 | 0}:00`; }
+  const all = []; let prev = key(0);
+  for (let i = 1; i < n; i++) { const k = key(i); if (k !== prev) { all.push([i, lab(i)]); prev = k; } }
+  const out = []; let lastX = -1e9;
+  for (const t of all) { const x = t[0] / (n - 1) * W; if (x - lastX >= 64) { out.push(t); lastX = x; } }
+  return out;
+}
+
+function makeChart(host) {
+  host.innerHTML = '<canvas></canvas><canvas></canvas><div class="tip" hidden></div>';
+  const [base, over] = host.querySelectorAll("canvas"), tip = host.querySelector(".tip");
+  const ch = { host, base, over, tip, spec: null };
+  const move = e => {
+    const s = ch.spec; if (!s) return;
+    const r = host.getBoundingClientRect(), mx = e.clientX - r.left;
+    if (mx < s.L || mx > s.L + s.W) return leave();
+    const i = Math.round((mx - s.L) / s.W * (s.n - 1));
+    const ctx = over.getContext("2d"), dpr = devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, r.width, r.height);
+    const x = s.x(i);
+    ctx.strokeStyle = cssv("--muted"); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(x + 0.5, s.T); ctx.lineTo(x + 0.5, s.T + s.H); ctx.stroke(); ctx.setLineDash([]);
+    for (const se of s.series) { const v = se.data[i]; if (!isFinite(v) || se.noDot) continue;
+      ctx.fillStyle = se.color; ctx.strokeStyle = cssv("--panel"); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, s.y(v), 4, 0, 7); ctx.fill(); ctx.stroke(); }
+    tip.innerHTML = s.tip(i); tip.hidden = false;
+    const tw = tip.offsetWidth; tip.style.left = (mx + 14 + tw > r.width ? mx - 14 - tw : mx + 14) + "px";
+    tip.style.top = Math.max(0, Math.min(r.height - tip.offsetHeight, e.clientY - r.top - tip.offsetHeight / 2)) + "px";
+  };
+  const leave = () => { tip.hidden = true; const ctx = over.getContext("2d"); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, over.width, over.height); };
+  host.addEventListener("pointermove", move); host.addEventListener("pointerleave", leave); host.addEventListener("pointerdown", move);
+  return ch;
+}
+
+function drawChart(ch, spec) {
+  const host = ch.host, w = host.clientWidth, h = host.clientHeight, dpr = devicePixelRatio || 1;
+  for (const cv of [ch.base, ch.over]) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const ctx = ch.base.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  const n = spec.b.c.length, L = 6, R = 58, T = 8, B = 24, W = w - L - R, H = h - T - B;
+  let lo = Infinity, hi = -Infinity;
+  for (const s of spec.series) for (let i = 0; i < n; i++) { const v = s.data[i]; if (isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } }
+  if (spec.yMin !== undefined) lo = Math.min(lo, spec.yMin);
+  if (spec.yMax !== undefined) hi = Math.max(hi, spec.yMax);
+  if (!isFinite(lo)) { lo = 0; hi = 1; }
+  const padY = (hi - lo) * 0.06 || 1; if (spec.yMax === undefined) hi += padY; if (spec.yMin === undefined || lo < spec.yMin) lo -= padY;
+  const x = i => L + (n > 1 ? i / (n - 1) : 0.5) * W, y = v => T + (hi - v) / (hi - lo) * H;
+  ctx.font = `11px ${cssv("--mono")}`; ctx.textBaseline = "middle";
+  ctx.strokeStyle = cssv("--grid"); ctx.fillStyle = cssv("--muted"); ctx.lineWidth = 1;
+  for (const v of niceTicks(lo, hi, Math.max(3, Math.round(H / 55)))) {
+    const yy = Math.round(y(v)) + 0.5; if (yy < T - 1 || yy > T + H + 1) continue;
+    ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(L + W, yy); ctx.stroke();
+    ctx.fillText(spec.yFmt(v), L + W + 8, yy);
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const [i, lab] of xTicks(spec.b, W)) { const xx = x(i); if (xx < L + 14 || xx > L + W - 14) continue; ctx.fillText(lab, xx, T + H + 7); }
+  ctx.textAlign = "left";
+  ctx.save(); ctx.beginPath(); ctx.rect(L, T - 2, W, H + 4); ctx.clip();
+  for (const s of spec.series) {
+    const pts = [], d = s.data, perCol = n > W * 2;
+    let col = null, mn, mx, first, lastV;
+    const flush = () => { if (col === null) return; pts.push([col, first]); if (perCol) { pts.push([col, mn]); pts.push([col, mx]); } pts.push([col, lastV]); col = null; };
+    const segs = [[]];
+    for (let i = 0; i < n; i++) {
+      const v = d[i];
+      if (!isFinite(v)) { flush(); if (pts.length) { segs.push(pts.splice(0)); } continue; }
+      const c = perCol ? Math.round(x(i)) : x(i);
+      if (c !== col) { flush(); col = c; mn = mx = first = lastV = v; } else { mn = Math.min(mn, v); mx = Math.max(mx, v); lastV = v; }
+    }
+    flush(); segs.push(pts.splice(0));
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 1.5; ctx.setLineDash(s.dash ? [4, 4] : []); ctx.lineJoin = "round";
+    for (const seg of segs) {
+      if (seg.length < 1) continue;
+      if (s.fill !== undefined) {
+        ctx.beginPath(); ctx.moveTo(seg[0][0], y(s.fill)); for (const [a, v] of seg) ctx.lineTo(a, y(v)); ctx.lineTo(seg[seg.length - 1][0], y(s.fill)); ctx.closePath();
+        ctx.globalAlpha = 0.14; ctx.fillStyle = s.color; ctx.fill(); ctx.globalAlpha = 1;
+      }
+      ctx.beginPath(); seg.forEach(([a, v], k) => k ? ctx.lineTo(a, y(v)) : ctx.moveTo(a, y(v))); ctx.stroke();
+    }
+  }
+  ctx.setLineDash([]);
+  const ring = cssv("--panel");
+  for (const m of spec.markers || []) {
+    const mx2 = x(m.i), my = y(m.v); ctx.fillStyle = m.color; ctx.strokeStyle = ring; ctx.lineWidth = 1.5; ctx.beginPath();
+    if (m.shape === "up") { ctx.moveTo(mx2, my - 1); ctx.lineTo(mx2 - 5, my + 8); ctx.lineTo(mx2 + 5, my + 8); }
+    else if (m.shape === "down") { ctx.moveTo(mx2, my + 1); ctx.lineTo(mx2 - 5, my - 8); ctx.lineTo(mx2 + 5, my - 8); }
+    else ctx.arc(mx2, my, 3.5, 0, 7);
+    ctx.closePath(); ctx.stroke(); ctx.fill();
+  }
+  ctx.restore();
+  ch.spec = { ...spec, n, L, W, T, H, x, y };
+}
+
+// ---------------------------------------------------------------- state & UI
+const S = { datasets: [], ds: 0, strat: "z", params: {}, dir: "long", stop: 0, tp: 0, rth: false, contract: "NQ", qty: 1, comm: 2.5, slip: 1, capital: 250000, from: "", to: "", showAll: false };
+try { Object.assign(S, JSON.parse(localStorage.getItem("nqlab-settings") || "{}"), { datasets: [], ds: 0, showAll: false }); } catch (e) {}
+const save = () => { try { const { datasets, ds, showAll, ...rest } = S; localStorage.setItem("nqlab-settings", JSON.stringify(rest)); } catch (e) {} };
+const P = id => Object.assign(defaults(byId[id]), S.params[id] || {});
+
+const idb = {
+  open() { return new Promise((res, rej) => { const r = indexedDB.open("nqlab", 1); r.onupgradeneeded = () => r.result.createObjectStore("files"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
+  async put(k, v) { const db = await this.open(); return new Promise((res, rej) => { const tx = db.transaction("files", "readwrite"); tx.objectStore("files").put(v, k); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); },
+  async clear() { const db = await this.open(); return new Promise((res, rej) => { const tx = db.transaction("files", "readwrite"); tx.objectStore("files").clear(); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); },
+  async all() { const db = await this.open(); return new Promise((res, rej) => { const out = [], rq = db.transaction("files").objectStore("files").openCursor(); rq.onsuccess = () => { const c = rq.result; if (c) { out.push([c.key, c.value]); c.continue(); } else res(out); }; rq.onerror = () => rej(rq.error); }); },
+};
+
+const charts = { price: makeChart($("#priceChart")), eq: makeChart($("#eqChart")), dd: makeChart($("#ddChart")) };
+
+function dsLabel(b) { const n = b.day.length, f = d => `${MON[+d.slice(5, 7) - 1]} ${d.slice(0, 4)}`; return `${b.name} · ${b.interval} · ${f(b.day[0])} – ${f(b.day[n - 1])}`; }
+function fillDatasets() {
+  $("#ds").innerHTML = S.datasets.map((b, i) => `<option value="${i}">${esc(dsLabel(b))}</option>`).join("");
+  $("#ds").value = S.ds;
+}
+function setRange() { const b = S.datasets[S.ds]; S.from = b.day[0]; S.to = b.day[b.day.length - 1]; $("#from").value = S.from; $("#to").value = S.to; }
+
+function fillStrategy() {
+  const b = S.datasets[S.ds];
+  $("#strat").innerHTML = STRATS.map(s => `<option value="${s.id}">${esc(s.name)}${s.intraday && !b.intraday ? " (intraday data)" : ""}</option>`).join("");
+  $("#strat").value = S.strat;
+  const s = byId[S.strat], p = P(S.strat);
+  $("#desc").textContent = s.desc + (b.intraday && !s.intraday && s.params.length ? " Lookbacks count bars, so on intraday data they are much shorter in time." : "");
+  $("#params").innerHTML = s.params.map(q => `<div class="row"><label for="p-${s.id}-${q.id}">${esc(q.label)}</label>${q.options
+    ? `<select id="p-${s.id}-${q.id}" data-p="${q.id}">${q.options.map(o => `<option${o === p[q.id] ? " selected" : ""}>${o}</option>`).join("")}</select>`
+    : `<input type="number" id="p-${s.id}-${q.id}" data-p="${q.id}" value="${p[q.id]}" step="${q.step || 1}" min="0">`}</div>`).join("");
+  document.querySelectorAll(".seg button").forEach(btn => btn.setAttribute("aria-pressed", btn.dataset.dir === S.dir));
+}
+
+function fillAccount() { for (const k of ["stop", "tp", "qty", "comm", "slip", "capital"]) $("#" + k).value = S[k]; $("#contract").value = S.contract; $("#rth").checked = S.rth; }
+
+function runOne(b, strat, params, cfg) {
+  let { sig, ov } = strat.signal(b, params, S.dir);
+  sig = Int8Array.from(sig, v => S.dir === "long" ? Math.max(0, v) : S.dir === "short" ? Math.min(0, v) : v);
+  if (S.rth && b.intraday) for (let i = 0; i < sig.length; i++) if (b.mod[i] < RTH_OPEN || b.mod[i] >= RTH_FLAT) sig[i] = 0;
+  const r = backtest(b, sig, cfg);
+  return { r, ov, st: stats(b, r, cfg.capital) };
+}
+
+let pending = 0;
+function schedule() { clearTimeout(pending); pending = setTimeout(render, 90); }
+
+function render() {
+  save();
+  const full = S.datasets[S.ds]; if (!full) return;
+  const b = sliceBars(full, S.from, S.to);
+  const notice = $("#notice");
+  if (full.sample) { notice.hidden = false; notice.innerHTML = `<b>Simulated sample data.</b> These are not real NQ prices. Run <code>python fetch_nq.py</code>, then load <code>data/nq/nq_daily.csv</code> and <code>nq_5m.csv</code> with “Load CSV files”.`; }
+  else notice.hidden = true;
+  if (b.c.length < 30) { notice.hidden = false; notice.textContent = "Fewer than 30 bars in this date range. Widen From / To."; return; }
+
+  const cfg = { pv: PV[S.contract], qty: Math.max(1, Math.round(S.qty) || 1), cps: (+S.comm || 0) + (+S.slip || 0) * TICK * PV[S.contract], stop: (+S.stop || 0) / 100, tp: (+S.tp || 0) / 100, capital: Math.max(1, +S.capital || 250000) };
+  const strat = byId[S.strat];
+  if (strat.intraday && !b.intraday) { notice.hidden = false; notice.innerHTML = `<b>${esc(strat.name)} needs intraday bars.</b> Pick a 5-minute or hourly dataset in Data.`; }
+  const cur = strat.intraday && !b.intraday ? runOne(b, byId.bh, {}, cfg) : runOne(b, strat, P(S.strat), cfg);
+  const bench = backtest(b, new Int8Array(b.c.length).fill(1), { ...cfg, stop: 0, tp: 0 });
+
+  renderTiles(cur.st, cur.r, cfg);
+  renderPrice(b, cur);
+  renderEquity(b, cur, bench, cfg);
+  renderCompare(b, cfg);
+  renderYears(b, cur, cfg);
+  renderTrades(b, cur.r);
+}
+
+function renderTiles(st, r, cfg) {
+  const t = (k, v, s, c = "") => `<div class="tile"><span class="k">${k}</span><span class="v ${c}">${v}</span><span class="s">${s}</span></div>`;
+  $("#tiles").innerHTML = [
+    t("Net P&amp;L", usd(st.net, true), `on ${usd(cfg.capital)} start`, cls(st.net)),
+    t("CAGR", pct(st.cagr, true), st.wiped >= 0 ? "account went to zero" : "compound yearly", cls(st.cagr)),
+    t("Max drawdown", pct(st.mdd), usd(st.mddUsd), "neg"),
+    t("Sharpe", num(st.sharpe), "daily P&amp;L, annualised"),
+    t("Trades", st.trades.toLocaleString("en-US"), `in market ${pct(st.exposure, false, 0)} of bars`),
+    t("Win rate", pct(st.win, false, 0), `avg win ${usd(st.avgW)}`),
+    t("Profit factor", num(st.pf), `avg loss ${usd(st.avgL)}`),
+    t("Avg trade", usd(st.avg, true), "after costs", cls(st.avg)),
+  ].join("");
+}
+
+function renderPrice(b, cur) {
+  const ovColors = [cssv("--series"), cssv("--series"), cssv("--series")];
+  const series = [{ data: b.c, color: cssv("--price"), width: 1.4, label: "Close" }];
+  cur.ov.forEach((o, k) => series.push({ data: o.data, color: ovColors[k], dash: o.dash, width: o.dash ? 1.2 : 1.6, label: o.label, noDot: true }));
+  const T = cur.r.trades, show = T.length <= 300, markers = [];
+  if (show) for (const t of T) {
+    markers.push({ i: t.ei, v: t.ep, shape: t.side > 0 ? "up" : "down", color: t.side > 0 ? cssv("--long") : cssv("--short") });
+    if (!t.open) markers.push({ i: t.xi, v: t.xp, shape: "dot", color: cssv("--ink-2") });
+  }
+  $("#priceSub").textContent = show ? "Up triangles are long entries, down triangles short entries, dots exits. Markers hide above 300 trades." : `${T.length.toLocaleString("en-US")} trades: markers hidden above 300. Narrow the date range to see them.`;
+  const leg = [`<span><i style="color:var(--price)"></i>Close</span>`];
+  cur.ov.forEach(o => o.label && leg.push(`<span><i class="${o.dash ? "dash" : ""}" style="color:var(--series)"></i>${esc(o.label)}</span>`));
+  if (show && T.length) { leg.push(`<span><i class="tri" style="color:var(--long)"></i>Long entry</span>`); if (T.some(t => t.side < 0)) leg.push(`<span><i class="tri" style="color:var(--short);transform:rotate(180deg)"></i>Short entry</span>`); leg.push(`<span><i class="dot" style="background:var(--ink-2)"></i>Exit</span>`); }
+  $("#priceLegend").innerHTML = leg.join("");
+  const held = cur.r.held;
+  drawChart(charts.price, { b, series, markers, yFmt: compact,
+    tip: i => `<b>${when(b, i)}</b><br>O ${px(b.o[i])}  H ${px(b.h[i])}<br>L ${px(b.l[i])}  C ${px(b.c[i])}` +
+      cur.ov.filter(o => o.label && isFinite(o.data[i])).map(o => `<br>${esc(o.label)} ${px(o.data[i])}`).join("") +
+      `<br>Position <b>${held[i] > 0 ? "long" : held[i] < 0 ? "short" : "flat"}</b>` });
+}
+
+function renderEquity(b, cur, bench, cfg) {
+  const eq = cur.r.eq, be = bench.eq;
+  drawChart(charts.eq, { b, series: [{ data: be, color: cssv("--muted"), dash: true, width: 1.2 }, { data: eq, color: cssv("--series"), width: 2, fill: cfg.capital }], yFmt: v => "$" + compact(v),
+    tip: i => `<b>${when(b, i)}</b><br>Strategy ${usd(eq[i])}<br>Buy &amp; hold ${usd(be[i])}` });
+  const dd = Float64Array.from(cur.st.dd, v => v * 100);
+  drawChart(charts.dd, { b, series: [{ data: dd, color: cssv("--loss"), width: 1.4, fill: 0 }], yMax: 0, yFmt: v => (v < 0 ? "−" : "") + Math.abs(Math.round(v)) + "%",
+    tip: i => `<b>${when(b, i)}</b><br>Below high ${pct(cur.st.dd[i])}` });
+}
+
+function renderCompare(b, cfg) {
+  const rows = STRATS.map(s => {
+    const name = `<button class="link" type="button" data-load="${s.id}">${esc(s.name)}</button>`;
+    if (s.intraday && !b.intraday) return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="na" colspan="5">Needs intraday bars</td></tr>`;
+    const { st } = runOne(b, s, s.id === S.strat ? P(s.id) : defaults(s), cfg);
+    return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="${cls(st.net)}">${usd(st.net, true)}</td><td class="${cls(st.cagr)}">${pct(st.cagr, true)}</td><td class="neg">${pct(st.mdd)}</td><td>${num(st.sharpe)}</td><td>${st.trades}</td></tr>`;
+  });
+  $("#cmp").innerHTML = `<thead><tr><th>Strategy</th><th>Net P&amp;L</th><th>CAGR</th><th>Max DD</th><th>Sharpe</th><th>Trades</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+}
+
+function renderYears(b, cur, cfg) {
+  const eq = cur.r.eq, out = []; let start = cfg.capital, y0 = b.day[0].slice(0, 4);
+  for (let i = 0; i < b.c.length; i++) {
+    const y = b.day[i].slice(0, 4);
+    if (i === b.c.length - 1 || b.day[i + 1].slice(0, 4) !== y) {
+      const T = cur.r.trades.filter(t => !t.open && b.day[t.xi].slice(0, 4) === y), w = T.filter(t => t.pnl > 0).length;
+      out.push(`<tr><td>${y}</td><td class="${cls(eq[i] - start)}">${usd(eq[i] - start, true)}</td><td class="${cls(eq[i] - start)}">${start > 0 ? pct((eq[i] - start) / start, true) : "–"}</td><td>${T.length}</td><td>${T.length ? pct(w / T.length, false, 0) : "–"}</td></tr>`);
+      start = eq[i];
+    }
+  }
+  $("#years").innerHTML = `<thead><tr><th>Year</th><th>P&amp;L</th><th>Return</th><th>Trades closed</th><th>Win rate</th></tr></thead><tbody>${out.join("")}</tbody>`;
+}
+
+function renderTrades(b, r) {
+  const T = r.trades.slice().reverse(), lim = S.showAll ? T.length : 100;
+  $("#tradeSub").textContent = T.length ? `${T.length.toLocaleString("en-US")} trades, newest first. P&L is after commission and slippage.` : "No trades with these settings.";
+  const why = { stop: "stop", target: "target", signal: "signal", open: "still open" };
+  $("#trades").innerHTML = `<thead><tr><th>Side</th><th>Entry</th><th>Entry px</th><th>Exit</th><th>Exit px</th><th>Bars</th><th>Exit by</th><th>P&amp;L</th></tr></thead><tbody>` +
+    T.slice(0, lim).map(t => `<tr><td><span class="pill" style="color:var(${t.side > 0 ? "--long" : "--short"})">${t.side > 0 ? "Long" : "Short"}</span></td><td>${when(b, t.ei)}</td><td>${px(t.ep)}</td><td>${when(b, t.xi)}</td><td>${px(t.xp)}</td><td>${t.xi - t.ei}</td><td>${why[t.why]}</td><td class="${cls(t.pnl)}">${usd(t.pnl, true)}</td></tr>`).join("") + "</tbody>";
+  $("#moreTrades").hidden = T.length <= lim;
+  $("#moreTrades").textContent = `Show all ${T.length.toLocaleString("en-US")} trades`;
+}
+
+// ---------------------------------------------------------------- events
+$("#ds").addEventListener("change", e => { S.ds = +e.target.value; setRange(); fillStrategy(); render(); });
+$("#from").addEventListener("change", e => { S.from = e.target.value; schedule(); });
+$("#to").addEventListener("change", e => { S.to = e.target.value; schedule(); });
+$("#strat").addEventListener("change", e => { S.strat = e.target.value; S.showAll = false; fillStrategy(); render(); });
+$("#params").addEventListener("input", e => { const k = e.target.dataset.p; if (!k) return; const v = e.target.tagName === "SELECT" ? e.target.value : parseFloat(e.target.value); if (e.target.tagName !== "SELECT" && !isFinite(v)) return; (S.params[S.strat] ||= {})[k] = v; schedule(); });
+document.querySelectorAll(".seg button").forEach(btn => btn.addEventListener("click", () => { S.dir = btn.dataset.dir; fillStrategy(); render(); }));
+for (const k of ["stop", "tp", "qty", "comm", "slip", "capital"]) $("#" + k).addEventListener("input", e => { S[k] = parseFloat(e.target.value) || 0; schedule(); });
+$("#contract").addEventListener("change", e => { S.contract = e.target.value; render(); });
+$("#rth").addEventListener("change", e => { S.rth = e.target.checked; render(); });
+$("#cmp").addEventListener("click", e => { const id = e.target.dataset.load; if (!id) return; S.strat = id; S.showAll = false; fillStrategy(); render(); });
+$("#moreTrades").addEventListener("click", () => { S.showAll = true; render(); });
+
+async function addFiles(files) {
+  const added = [], errors = [];
+  for (const f of files) {
+    try { const text = await f.text(); const b = parseCSV(text, f.name); added.push(b); try { await idb.put(f.name, text); } catch (e) {} }
+    catch (e) { errors.push(e.message); }
+  }
+  if (added.length) {
+    S.datasets = S.datasets.filter(d => !d.sample && !added.some(a => a.name === d.name)).concat(added);
+    S.ds = Math.max(0, S.datasets.findIndex(d => !d.intraday));
+    fillDatasets(); setRange(); fillStrategy(); render();
+  }
+  if (errors.length) { const n = $("#notice"); n.hidden = false; n.textContent = "Could not read: " + errors.join("; "); }
+}
+$("#file").addEventListener("change", e => { addFiles([...e.target.files]); e.target.value = ""; });
+$("#forget").addEventListener("click", async () => { try { await idb.clear(); } catch (e) {} S.datasets = [sampleDaily(), sample5m()]; S.ds = 0; fillDatasets(); setRange(); fillStrategy(); render(); });
+let dragDepth = 0;
+addEventListener("dragenter", e => { if ([...e.dataTransfer.types].includes("Files")) { dragDepth++; $("#drop").hidden = false; } });
+addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("#drop").hidden = true; } });
+addEventListener("dragover", e => e.preventDefault());
+addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; $("#drop").hidden = true; addFiles([...e.dataTransfer.files].filter(f => /\.csv$/i.test(f.name))); });
+
+new ResizeObserver(() => schedule()).observe($("#priceChart"));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+(async function init() {
+  let saved = [];
+  try { saved = await idb.all(); } catch (e) {}
+  for (const [name, text] of saved) { try { S.datasets.push(parseCSV(text, name)); } catch (e) {} }
+  if (!S.datasets.length) S.datasets = [sampleDaily(), sample5m()];
+  S.ds = Math.max(0, S.datasets.findIndex(d => !d.intraday));
+  if (!byId[S.strat]) S.strat = "z";
+  fillDatasets(); fillAccount();
+  const savedFrom = S.from, savedTo = S.to; setRange();
+  const b = S.datasets[S.ds];
+  if (savedFrom && savedFrom >= b.day[0] && savedFrom <= b.day[b.day.length - 1]) { S.from = savedFrom; $("#from").value = savedFrom; }
+  if (savedTo && savedTo >= b.day[0] && savedTo <= b.day[b.day.length - 1]) { S.to = savedTo; $("#to").value = savedTo; }
+  fillStrategy(); render();
+})();
+</script>

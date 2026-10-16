@@ -77,3 +77,12 @@ runs a strategy on the downloaded NQ data with real contract math ($20/point,
 commission + slippage per side) and prints net P&L, win rate, profit factor, max
 drawdown, Sharpe and P&L by year. Trades, equity curve and a chart go to `results/`.
 Add your own strategy as a function in `backtest.py` and register it in `STRATEGIES`.
+
+## Strategy Lab (visual backtester)
+
+Open `lab/nq_strategy_lab.html` in a browser and load the CSVs from `data/nq/` with
+"Load CSV files". It runs nine strategies (buy & hold, MA cross, trend filter, Donchian,
+RSI, z-score, time-series momentum, opening-range breakout, session VWAP bands) with
+stops, targets, direction, contract size and costs, and shows price with trade markers,
+equity vs buy & hold, drawdown, a side-by-side comparison, P&L by year and a trade log.
+Everything runs in the browser; files never leave your machine.
