@@ -61,3 +61,11 @@ python run.py AAPL 2026-09-01
 Reports are saved under `~/.tradingagents` unless `TRADINGAGENTS_RESULTS_DIR` is set.
 
 TradingAgents is a research framework. Its output is not financial advice.
+
+## NQ historical data
+
+`python fetch_nq.py [YEARS]` (default 10) downloads free Nasdaq-100 data into `data/nq/`:
+NQ=F futures (daily for the full window, hourly ~2y, 5m ~60d, 1m ~30d), the ^NDX index,
+QQQ, ^VXN, and FRED's NASDAQ100/VXNCLS series. It also writes and prints summary tables:
+overall stats (CAGR, volatility, Sharpe, max drawdown, best/worst day), per-year stats,
+month-of-year seasonality and day-of-week returns.
