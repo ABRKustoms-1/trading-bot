@@ -56,6 +56,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
             html = PAGE.read_text(encoding="utf-8")
+            build = subprocess.run(["git", "log", "-1", "--format=%h %cd", "--date=format:%b %d %H:%M"], cwd=ROOT,
+                                   capture_output=True, text=True).stdout.strip() or "unknown"
+            html = f'<script>window.LAB_BUILD = {json.dumps(build)};</script>' + html
             doc = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
                    '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
                    f"</head><body>{html}</body></html>")

@@ -147,7 +147,7 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
 
 <div class="app">
   <aside class="rail">
-    <div class="brand"><h1>NQ Strategy Lab</h1><span>$20 / pt</span></div>
+    <div class="brand"><h1>NQ Strategy Lab</h1><span id="build" title="Version of the lab you're running">$20 / pt</span></div>
 
     <div class="sec">
       <h2>Data</h2>
@@ -1486,6 +1486,8 @@ $("#refresh").addEventListener("click", async () => {
   } catch (e) { note.textContent = "Refresh failed: " + e.message; }
   btn.disabled = false; btn.textContent = "Refresh data";
 });
+
+if (window.LAB_BUILD) $("#build").textContent = "version " + window.LAB_BUILD.split(" ")[0];
 
 (async function init() {
   try { S.datasets = await loadBackend(); } catch (e) {}

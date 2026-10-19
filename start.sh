@@ -6,7 +6,12 @@ cd "$(dirname "$0")"
 PORT="${1:-8000}"
 
 echo "==> Getting the latest code"
-git pull --ff-only -q 2>/dev/null || echo "    (couldn't pull, using the code already here)"
+if ! PULL=$(git pull --ff-only 2>&1); then
+  echo "    !! Couldn't download the latest version:"
+  echo "$PULL" | sed 's/^/       /' | head -8
+  echo "    !! Running the version already here. Ask for help with the message above."
+fi
+echo "    Running version $(git log -1 --format='%h from %cd' --date=format:'%b %d %H:%M')"
 
 echo "==> Checking Python packages"
 python3 -c "import yfinance, pandas, numpy" 2>/dev/null || pip install -q -r requirements-lab.txt
