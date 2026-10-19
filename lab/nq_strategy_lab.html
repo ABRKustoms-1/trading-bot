@@ -129,6 +129,9 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
 .coin-verdict .good { color: var(--gain) } .coin-verdict .warn { color: var(--warn-ink) } .coin-verdict .bad { color: var(--loss) }
 .coin-nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0; font-size: 13px; color: var(--ink-2) }
 .coin-nums b { display: block; font: 500 16px var(--mono); color: var(--ink) }
+.coin-hist-runs { margin: 10px 0 }
+.coin-hist-runs summary { cursor: pointer; color: var(--accent); font-size: 13px }
+.coin-hist-runs table { font-size: 12px; margin-top: 6px }
 .coin-hist text { font: 11px var(--mono); fill: var(--muted) }
 .coin-hist .bar { fill: var(--series); opacity: 0.55 }
 .coin-hist .bar.beat { opacity: 0.95 }
@@ -1158,25 +1161,50 @@ async function runCoin() {
     if (k % 20 === 19) { btn.textContent = `Running… ${k + 1} / ${runs}`; await new Promise(res => setTimeout(res)); }
   }
   btn.disabled = false; btn.textContent = "Run coin-flip test";
-  coinState = { key, mode, runs, actual, nets, pfs, trades: trades.length };
+  // what was tested, in words, so two runs can be compared
+  const strat = byId[S.strat], first = trades[0], lastT = trades[trades.length - 1];
+  const rules = [cfg.maxLoss && `${usd(cfg.maxLoss)}/trade`, cfg.dayLimit && `${usd(cfg.dayLimit)}/day`, cfg.maxDD && `${usd(cfg.maxDD)} max DD`].filter(Boolean).join(", ") || "no account rules";
+  const ctx = {
+    when: new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+    strategy: strat ? strat.name : S.strat, data: `${b.intraday ? b.interval : "daily"} ${when(b, first.ei).replace(/(\d{4}).*$/, "$1")} – ${when(b, lastT.xi).replace(/(\d{4}).*$/, "$1")}`,
+    direction: { long: "long only", short: "short only", both: "long + short" }[S.dir], mode: { side: "long or short", time: "entry time", both: "time + side" }[mode],
+    rules, windows: b.intraday && cfg.winOn ? S.windows.filter(w => w.on).map(w => w.name).join(" + ") || "none" : "any time",
+    skipDays: cfg.noTradeDays.length, trades: trades.length, net: actual.net, pct: nets.filter(x => x >= actual.net).length / runs,
+  };
+  coinState = { key, mode, runs, actual, nets, pfs, trades: trades.length, ctx };
+  try {
+    const hist = JSON.parse(localStorage.getItem("nqlab-coin") || "[]");
+    hist.unshift(ctx);
+    localStorage.setItem("nqlab-coin", JSON.stringify(hist.slice(0, 12)));
+  } catch (e) {}
   renderCoin();
+}
+function coinHistory() {
+  let hist = [];
+  try { hist = JSON.parse(localStorage.getItem("nqlab-coin") || "[]"); } catch (e) {}
+  if (hist.length < 2) return "";
+  return `<details class="coin-hist-runs"><summary>Your last ${hist.length} coin-flip runs (compare what changed)</summary><div class="tbl"><table>
+    <thead><tr><th>When</th><th>Strategy</th><th>Data (trades in test)</th><th>Direction</th><th>Coin decides</th><th>Rules</th><th>Windows</th><th>Skip days</th><th>Trades</th><th>Net</th><th>Coins as good</th></tr></thead><tbody>${hist.map(h =>
+    `<tr><td>${esc(h.when)}</td><td>${esc(h.strategy)}</td><td>${esc(h.data)}</td><td>${esc(h.direction)}</td><td>${esc(h.mode)}</td><td>${esc(h.rules)}</td><td>${esc(h.windows)}</td><td>${h.skipDays}</td><td>${h.trades}</td><td class="${cls(h.net)}">${usd(h.net, true)}</td><td>${pct(h.pct, false, 0)}</td></tr>`).join("")}</tbody></table></div></details>`;
 }
 function renderCoin() {
   const out = $("#coinOut");
   if (!coinState || coinState.key !== coinKey()) {
-    out.innerHTML = `<p class="sub">${coinState ? "Settings changed since the last test. " : ""}Press <b>Run coin-flip test</b>. It takes a few seconds on 5-minute data.</p>`;
+    out.innerHTML = `<p class="sub">${coinState ? "Settings changed since the last test. " : ""}Press <b>Run coin-flip test</b>. It takes a few seconds on 5-minute data.</p>` + coinHistory();
     return;
   }
-  const { actual, nets, pfs, runs, mode, trades } = coinState;
+  const { actual, nets, pfs, runs, mode, trades, ctx } = coinState;
   const beatNet = nets.filter(x => x >= actual.net).length, p = beatNet / runs;
   const beatPf = pfs.filter(x => x >= actual.pf).length;
   const sorted = [...nets].sort((a, z) => a - z), q = f => sorted[Math.min(runs - 1, Math.floor(f * runs))];
   const what = { side: "the same trades with a coin choosing long or short", time: "the same number of trades and hold times at random entry times", both: "random entry times with a coin choosing long or short" }[mode];
   const [tone, label, say] = p <= 0.05 ? ["good", "Beats the coin", `Only ${pct(p, false, 1)} of coin-flip runs made as much. The strategy's ${mode === "time" ? "timing" : "choices"} look like a real edge.`]
     : p <= 0.2 ? ["warn", "Borderline", `${pct(p, false, 0)} of coin-flip runs made as much. There may be an edge, but it isn't convincing yet. Test more data before risking money.`]
+    : p >= 0.98 ? ["bad", "Worse than the coin", `${pct(p, false, 0)} of coin-flip runs did better. The strategy is consistently on the wrong ${mode === "time" ? "timing" : "side"} here, which is a pattern too: check whether its rules are inverted or whether costs and the account rules are eating it.`]
     : ["bad", "A coin keeps up", `${pct(p, false, 0)} of coin-flip runs made as much or more. These results can be explained by luck.`];
   out.innerHTML = `
     <div class="coin-verdict"><span class="pill ${tone}">${label}</span><span>${say}</span></div>
+    <p class="sub" style="margin:2px 0 0">Tested: <b>${esc(ctx.strategy)}</b> · ${esc(ctx.data)} · ${esc(ctx.direction)} · coin decides ${esc(ctx.mode)} · ${esc(ctx.rules)} · windows: ${esc(ctx.windows)} · ${ctx.skipDays} no-trade days. Different data, dates or settings give a different answer; your last runs are listed below.</p>
     ${trades < 30 ? `<p class="sub">Only ${trades} trades: too few for a reliable answer. Aim for 30 or more.</p>` : ""}
     <div class="coin-nums">
       <span>Your strategy (replayed)<b class="${cls(actual.net)}">${usd(actual.net, true)}</b></span>
@@ -1186,6 +1214,7 @@ function renderCoin() {
       <span>Profit factor vs coin<b>${num(actual.pf)} · beaten by ${pct(beatPf / runs, false, 0)}</b></span>
     </div>
     ${coinHistogram(nets, actual.net)}
+    ${coinHistory()}
     <p class="sub">Each bar counts coin-flip runs by net P&amp;L (darker bars matched or beat the strategy). Runs used ${what}. "Replayed" re-runs your trades through the same engine as the coin flips, so the comparison is like for like; it can differ slightly from the main results above.</p>`;
 }
 function coinHistogram(nets, you) {
