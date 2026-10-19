@@ -144,3 +144,12 @@ CPI, the jobs report (NFP) and PPI from the BLS news-release archives, and FOMC 
 from the Federal Reserve (`start.sh` refreshes it weekly). In the lab's **No-trade days**
 panel, tick the events to skip (CPI, FOMC and jobs report by default) and add any extra dates.
 No new trades open on a skipped day (US Eastern date); trades already open can still exit.
+
+### Coin-flip test
+
+The **Coin-flip test** card re-runs the current strategy's trades hundreds of times with a coin
+making the decision, using the same costs, account rules, trading windows and no-trade days, and
+shows how many coin-flip runs made as much as the strategy. The coin can choose long or short at
+the same entry times (the default for long+short strategies), the entry times at the same hold
+lengths (the default for long-only or short-only strategies), or both. Verdicts: **Beats the coin**
+(5% or fewer of runs as good), **Borderline** (up to 20%) or **A coin keeps up**.

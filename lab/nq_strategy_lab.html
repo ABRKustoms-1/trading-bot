@@ -124,6 +124,17 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
 .win { display: grid; grid-template-columns: minmax(0, 1fr) 92px 10px 92px; gap: 6px; align-items: center }
 .win span { color: var(--muted); text-align: center }
 .win input[type=time] { padding: 6px 6px }
+.coin-verdict { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: baseline; margin: 6px 0 4px }
+.coin-verdict .pill { font-size: 13px; padding: 3px 10px }
+.coin-verdict .good { color: var(--gain) } .coin-verdict .warn { color: var(--warn-ink) } .coin-verdict .bad { color: var(--loss) }
+.coin-nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0; font-size: 13px; color: var(--ink-2) }
+.coin-nums b { display: block; font: 500 16px var(--mono); color: var(--ink) }
+.coin-hist text { font: 11px var(--mono); fill: var(--muted) }
+.coin-hist .bar { fill: var(--series); opacity: 0.55 }
+.coin-hist .bar.beat { opacity: 0.95 }
+.coin-hist .you { stroke: var(--ink); stroke-width: 2 }
+.coin-hist .you-label { fill: var(--ink); font-weight: 600 }
+.coin-hist .zero { stroke: var(--muted); stroke-dasharray: 3 3 }
 .rules { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; color: var(--ink-2) }
 .rules b { font-weight: 600; color: var(--ink) }
 .rules .pill { font-family: var(--mono); font-size: 12px; padding: 2px 9px }
@@ -163,7 +174,7 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
       </div>
       <p class="hint" id="desc"></p>
       <div id="params" style="display:flex;flex-direction:column;gap:8px"></div>
-      <div class="seg" role="group" aria-label="Direction">
+      <div class="seg" role="group" aria-label="Direction" id="dirSeg">
         <button type="button" data-dir="long">Long only</button>
         <button type="button" data-dir="both">Long + short</button>
         <button type="button" data-dir="short">Short only</button>
@@ -237,6 +248,24 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
       <div class="chart" id="eqChart" style="height:240px"></div>
       <p class="sub" style="margin:12px 0 6px">Drawdown: how far equity sits below its previous high</p>
       <div class="chart" id="ddChart" style="height:120px"></div>
+    </section>
+
+    <section class="card">
+      <h3>Coin-flip test</h3>
+      <p class="sub">Could luck have done as well? The test re-runs this strategy's trades many times with a coin making the decision, through the same costs, account rules, trading windows and no-trade days, and counts how often the coin matches or beats the strategy.</p>
+      <div class="zoombar">
+        <label class="check" for="coinMode">The coin decides</label>
+        <select id="coinMode" style="width:auto">
+          <option value="side">Long or short (same entry times)</option>
+          <option value="time">Entry time (same direction and hold times)</option>
+          <option value="both">Both direction and time</option>
+        </select>
+        <select id="coinRuns" style="width:auto" aria-label="Number of coin-flip runs">
+          <option value="200">200 runs</option><option value="500" selected>500 runs</option><option value="1000">1,000 runs</option>
+        </select>
+        <button class="btn" type="button" id="coinRun">Run coin-flip test</button>
+      </div>
+      <div id="coinOut"></div>
     </section>
 
     <section class="card">
@@ -585,6 +614,41 @@ function backtest(b, sig, cfg) {
   return { eq, eqLow, held, trades, rules, exposure: bars / Math.max(1, n - 1) };
 }
 
+// Coin-flip test. Replays a strategy's trades through the built-in engine (same costs, account rules,
+// windows and no-trade days) with a coin choosing the side and/or the entry time.
+//   mode "side": same entry and exit bars, coin picks long or short
+//   mode "time": same number of trades, hold lengths and sides, coin picks the entry bars
+//   mode "both": coin picks entry bars and sides
+function coinReplay(b, trades, cfg, mode, rnd) {
+  const n = b.c.length, sig = new Int8Array(n);
+  let spans = trades.map(t => ({ ei: t.ei, xi: t.xi, side: t.side }));
+  if (mode && mode !== "side") {
+    const gate = gateMask(b, cfg), cand = [];
+    for (let i = 0; i < n - 1; i++) if (!gate || gate.enter[i]) cand.push(i);
+    const used = new Uint8Array(n), out = [];
+    for (const t of spans) {
+      const len = Math.max(1, t.xi - t.ei);
+      for (let tries = 0; tries < 30 && cand.length; tries++) {
+        const s0 = cand[Math.floor(rnd() * cand.length)], e0 = s0 + len;
+        if (e0 >= n) continue;
+        let free = true;
+        for (let i = s0; i <= e0 && free; i++) if (used[i]) free = false;
+        if (!free) continue;
+        for (let i = s0; i <= e0; i++) used[i] = 1;
+        out.push({ ei: s0, xi: e0, side: t.side });
+        break;
+      }
+    }
+    spans = out;
+  }
+  if (mode === "side" || mode === "both") for (const t of spans) t.side = rnd() < 0.5 ? 1 : -1;
+  for (const t of spans) for (let i = t.ei; i < t.xi; i++) sig[i] = t.side;
+  const r = backtest(b, sig, cfg), closed = r.trades.filter(t => !t.open);
+  let gw = 0, gl = 0;
+  for (const t of closed) if (t.pnl > 0) gw += t.pnl; else gl -= t.pnl;
+  return { net: r.eq[n - 1] - cfg.capital, pf: gl > 0 ? gw / gl : gw > 0 ? Infinity : NaN, trades: closed.length };
+}
+
 // Metrics follow TradingView's definitions: profit factor, win rate and averages use closed
 // trades only (after costs); max drawdown is the largest fall from a closing-equity high to the
 // worst equity reached inside any later bar, open trades included.
@@ -890,7 +954,7 @@ function fillStrategy() {
     ? `<select id="${id}" data-p="${q.id}">${q.options.map(o => `<option${String(o) === String(p[q.id]) ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`
     : q.text ? `<input type="text" id="${id}" data-p="${q.id}" data-kind="text" value="${esc(p[q.id])}">`
     : `<input type="number" id="${id}" data-p="${q.id}" value="${p[q.id]}" step="${q.step || 1}"${s.code ? "" : ' min="0"'}>`}</div>`; }).join("");
-  document.querySelectorAll(".seg button").forEach(btn => btn.setAttribute("aria-pressed", btn.dataset.dir === S.dir));
+  document.querySelectorAll("#dirSeg button").forEach(btn => btn.setAttribute("aria-pressed", btn.dataset.dir === S.dir));
 }
 
 // Release dates from data/events.csv (python fetch_events.py), served by serve_lab.py.
@@ -985,6 +1049,7 @@ function render() {
   renderZoombar(b, v);
   renderPrice(b, cur, v);
   renderEquity(b, cur, bench, cfg, v);
+  renderCoin();
   renderCompare(b, cfg);
   renderYears(b, cur, cfg);
   renderTrades(b, cur.r);
@@ -1029,6 +1094,77 @@ function renderRules(b, r, cfg, raw) {
   el.innerHTML = parts.join("");
   el.hidden = false;
 }
+
+// ---------------------------------------------------------------- coin-flip test (UI)
+let coinState = null;
+const coinKey = () => JSON.stringify([S.strat, P(S.strat), S.datasets[S.ds] && S.datasets[S.ds].name, S.from, S.to, S.dir, cfgNow(), $("#coinMode").value, $("#coinRuns").value]);
+async function runCoin() {
+  if (!last) return;
+  const { b, cur, cfg } = last, btn = $("#coinRun"), out = $("#coinOut");
+  const trades = cur.r.trades.filter(t => t.xi > t.ei);
+  if (trades.length < 2) { out.innerHTML = `<p class="sub">This strategy has ${trades.length} trade${trades.length === 1 ? "" : "s"} here, too few to test. Widen the date range or pick another strategy.</p>`; return; }
+  const mode = $("#coinMode").value, runs = +$("#coinRuns").value, key = coinKey();
+  btn.disabled = true;
+  const actual = coinReplay(b, trades, cfg, null, null), nets = [], pfs = [];
+  for (let k = 0; k < runs; k++) {
+    const r = coinReplay(b, trades, cfg, mode, rng(9001 + k * 7919));
+    nets.push(r.net); pfs.push(r.pf);
+    if (k % 20 === 19) { btn.textContent = `Running… ${k + 1} / ${runs}`; await new Promise(res => setTimeout(res)); }
+  }
+  btn.disabled = false; btn.textContent = "Run coin-flip test";
+  coinState = { key, mode, runs, actual, nets, pfs, trades: trades.length };
+  renderCoin();
+}
+function renderCoin() {
+  const out = $("#coinOut");
+  if (!coinState || coinState.key !== coinKey()) {
+    out.innerHTML = `<p class="sub">${coinState ? "Settings changed since the last test. " : ""}Press <b>Run coin-flip test</b>. It takes a few seconds on 5-minute data.</p>`;
+    return;
+  }
+  const { actual, nets, pfs, runs, mode, trades } = coinState;
+  const beatNet = nets.filter(x => x >= actual.net).length, p = beatNet / runs;
+  const beatPf = pfs.filter(x => x >= actual.pf).length;
+  const sorted = [...nets].sort((a, z) => a - z), q = f => sorted[Math.min(runs - 1, Math.floor(f * runs))];
+  const what = { side: "the same trades with a coin choosing long or short", time: "the same number of trades and hold times at random entry times", both: "random entry times with a coin choosing long or short" }[mode];
+  const [tone, label, say] = p <= 0.05 ? ["good", "Beats the coin", `Only ${pct(p, false, 1)} of coin-flip runs made as much. The strategy's ${mode === "time" ? "timing" : "choices"} look like a real edge.`]
+    : p <= 0.2 ? ["warn", "Borderline", `${pct(p, false, 0)} of coin-flip runs made as much. There may be an edge, but it isn't convincing yet. Test more data before risking money.`]
+    : ["bad", "A coin keeps up", `${pct(p, false, 0)} of coin-flip runs made as much or more. These results can be explained by luck.`];
+  out.innerHTML = `
+    <div class="coin-verdict"><span class="pill ${tone}">${label}</span><span>${say}</span></div>
+    ${trades < 30 ? `<p class="sub">Only ${trades} trades: too few for a reliable answer. Aim for 30 or more.</p>` : ""}
+    <div class="coin-nums">
+      <span>Your strategy (replayed)<b class="${cls(actual.net)}">${usd(actual.net, true)}</b></span>
+      <span>Coin flips that did as well<b>${beatNet} of ${runs.toLocaleString("en-US")}</b></span>
+      <span>Typical coin-flip result<b class="${cls(q(0.5))}">${usd(q(0.5), true)}</b></span>
+      <span>Best 5% of coin flips<b class="${cls(q(0.95))}">${usd(q(0.95), true)} or more</b></span>
+      <span>Profit factor vs coin<b>${num(actual.pf)} · beaten by ${pct(beatPf / runs, false, 0)}</b></span>
+    </div>
+    ${coinHistogram(nets, actual.net)}
+    <p class="sub">Each bar counts coin-flip runs by net P&amp;L (darker bars matched or beat the strategy). Runs used ${what}. "Replayed" re-runs your trades through the same engine as the coin flips, so the comparison is like for like; it can differ slightly from the main results above.</p>`;
+}
+function coinHistogram(nets, you) {
+  const lo = Math.min(...nets, you), hi = Math.max(...nets, you), bins = 32, span = hi - lo || 1, bw = span / bins;
+  const counts = new Array(bins).fill(0);
+  for (const x of nets) counts[Math.min(bins - 1, Math.floor((x - lo) / bw))]++;
+  const maxC = Math.max(...counts), W = 720, H = 180, L = 10, Rr = 10, T = 26, B = 24, pw = W - L - Rr, ph = H - T - B;
+  const X = v => L + (v - lo) / span * pw;
+  const bars = counts.map((c, k) => {
+    if (!c) return "";
+    const x = L + k * pw / bins, h = Math.max(2, c / maxC * ph), a = lo + k * bw;
+    return `<rect class="bar${a + bw > you ? " beat" : ""}" x="${(x + 1).toFixed(1)}" y="${(T + ph - h).toFixed(1)}" width="${Math.max(1, pw / bins - 2).toFixed(1)}" height="${h.toFixed(1)}" rx="2"><title>${usd(a, true)} to ${usd(a + bw, true)}: ${c} runs</title></rect>`;
+  }).join("");
+  const ticks = niceTicks(lo, hi, 5).filter(v => v >= lo && v <= hi).map(v => `<text x="${X(v).toFixed(1)}" y="${H - 6}" text-anchor="middle">${v < 0 ? "−" : ""}$${compact(Math.abs(v))}</text>`).join("");
+  const zero = lo < 0 && hi > 0 ? `<line class="zero" x1="${X(0)}" x2="${X(0)}" y1="${T}" y2="${T + ph}"/>` : "";
+  const yx = X(you), right = yx > W * 0.7;
+  return `<svg class="coin-hist" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Histogram of coin-flip net P&L with the strategy's result marked">
+    ${zero}${bars}${ticks}
+    <line class="you" x1="${yx}" x2="${yx}" y1="${T - 6}" y2="${T + ph}"/>
+    <text class="you-label" x="${right ? yx - 6 : yx + 6}" y="${T - 10}" text-anchor="${right ? "end" : "start"}">Your strategy ${usd(you, true)}</text>
+  </svg>`;
+}
+$("#coinRun").addEventListener("click", runCoin);
+$("#coinMode").addEventListener("change", renderCoin);
+$("#coinRuns").addEventListener("change", renderCoin);
 
 function renderPrice(b, cur, v) {
   const series = [{ data: b.c, color: cssv("--price"), width: 1.4, label: "Close" }];
@@ -1109,7 +1245,7 @@ $("#from").addEventListener("change", e => { S.from = e.target.value; schedule()
 $("#to").addEventListener("change", e => { S.to = e.target.value; schedule(); });
 $("#strat").addEventListener("change", e => { S.strat = e.target.value; S.showAll = false; fillStrategy(); render(); });
 $("#params").addEventListener("input", e => { const k = e.target.dataset.p; if (!k) return; const v = e.target.tagName === "SELECT" || e.target.dataset.kind === "text" ? e.target.value : parseFloat(e.target.value); if (typeof v === "number" && !isFinite(v)) return; (S.params[S.strat] ||= {})[k] = v; schedule(); });
-document.querySelectorAll(".seg button").forEach(btn => btn.addEventListener("click", () => { S.dir = btn.dataset.dir; fillStrategy(); render(); }));
+document.querySelectorAll("#dirSeg button").forEach(btn => btn.addEventListener("click", () => { S.dir = btn.dataset.dir; $("#coinMode").value = S.dir === "both" ? "side" : "time"; fillStrategy(); render(); }));
 for (const k of ACCOUNT_FIELDS) $("#" + k).addEventListener("input", e => { S[k] = parseFloat(e.target.value) || 0; schedule(); });
 $("#contract").addEventListener("change", e => { S.contract = e.target.value; render(); });
 $("#winOn").addEventListener("change", e => { S.winOn = e.target.checked; render(); });
@@ -1314,6 +1450,7 @@ $("#refresh").addEventListener("click", async () => {
   const b = S.datasets[S.ds];
   if (savedFrom && savedFrom >= b.day[0] && savedFrom <= b.day[b.day.length - 1]) { S.from = savedFrom; $("#from").value = savedFrom; }
   if (savedTo && savedTo >= b.day[0] && savedTo <= b.day[b.day.length - 1]) { S.to = savedTo; $("#to").value = savedTo; }
+  $("#coinMode").value = S.dir === "both" ? "side" : "time";
   fillStrategy(); render();
 })();
 </script>
