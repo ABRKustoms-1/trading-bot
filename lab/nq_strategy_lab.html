@@ -1084,8 +1084,8 @@ function renderStats() {
   const raw = rawRun ? (win ? windowRun(b, rawRun.r, win.i0, win.i1, cfg.capital).st : rawRun.st) : null;
   const i0 = win ? win.i0 : 0, i1 = win ? win.i1 : n - 1;
   $("#scope").innerHTML = win
-    ? `Stats for <b>${when(b, i0)} – ${when(b, i1)}</b>, the range shown on the chart. <button class="link" type="button" id="scopeAll">Show whole test</button>`
-    : `Stats for the whole test: <b>${when(b, 0)} – ${when(b, n - 1)}</b>. Zoom the chart or use the range buttons to measure part of it.`;
+    ? `Stats for <b>${when(b, i0)} – ${when(b, i1)}</b>, the range shown on the chart. <button class="link" type="button" id="scopeAll">Show the whole test period</button>`
+    : `Stats for your test period (From / To on the left): <b>${when(b, 0)} – ${when(b, n - 1)}</b>. Zoom the chart or use the range buttons to measure part of it.`;
   renderTiles(w.st, w.rw, cfg, win ? w.startEq : null);
   renderRules(b, w.rw, cfg, raw);
   renderCoin();
@@ -1281,7 +1281,7 @@ function renderTrades(b, r) {
   const span = r.spanning || [], T = [...span.map(t => ({ ...t, spans: true })), ...r.trades.slice().reverse()], lim = S.showAll ? T.length : 100;
   $("#tradeSub").textContent = T.length
     ? `${r.trades.length.toLocaleString("en-US")} trades${statsWindow() ? " closed in this range" : ""}, newest first${span.length ? `, plus ${span.length} still open at the range's end (not counted in the stats)` : ""}. P&L is after commission and slippage.`
-    : statsWindow() ? "No trades in this range. Use Show whole test above to see them all." : "No trades with these settings. Check the account rules, trading windows and no-trade days on the left.";
+    : statsWindow() ? "No trades in this range. Use Show the whole test period above to see them all." : "No trades with these settings. Check the account rules, trading windows and no-trade days on the left.";
   const why = { stop: "stop", target: "target", signal: "signal", open: "still open", close: "close", reverse: "reversal", session: "session end", window: "window end", risk: "max loss/trade", daily: "daily limit", maxdd: "max drawdown" };
   $("#trades").innerHTML = `<thead><tr><th>Side</th><th>Entry</th><th>Entry px</th><th>Exit</th><th>Exit px</th><th>Bars</th><th>Exit by</th><th>P&amp;L</th></tr></thead><tbody>` +
     T.slice(0, lim).map(t => `<tr><td><span class="pill" style="color:var(${t.side > 0 ? "--long" : "--short"})">${t.side > 0 ? "Long" : "Short"}</span></td><td>${when(b, t.ei)}</td><td>${px(t.ep)}</td><td>${when(b, t.xi)}</td><td>${px(t.xp)}</td><td>${t.xi - t.ei}</td><td>${t.spans ? "after this range" : why[t.why] || esc(t.why)}</td><td class="${cls(t.pnl)}">${usd(t.pnl, true)}</td></tr>`).join("") + "</tbody>";
@@ -1295,8 +1295,14 @@ $("#ds").addEventListener("change", e => {
   if (!S.datasets[S.ds].intraday) S.view = null; // a zoom carries from daily into intraday, not back
   setRange(); fillStrategy(); render();
 });
-$("#from").addEventListener("change", e => { S.from = e.target.value; schedule(); });
-$("#to").addEventListener("change", e => { S.to = e.target.value; schedule(); });
+// Changing the test period clears the chart zoom, so the stats cover the new dates.
+// Both events: some browsers only send "change" when the field loses focus.
+for (const id of ["from", "to"]) for (const ev of ["input", "change"]) $("#" + id).addEventListener(ev, e => {
+  const v = e.target.value;
+  if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return; // half-typed date
+  if (S[id] === v) return;
+  S[id] = v; S.view = null; schedule();
+});
 $("#strat").addEventListener("change", e => { S.strat = e.target.value; S.showAll = false; fillStrategy(); render(); });
 $("#params").addEventListener("input", e => { const k = e.target.dataset.p; if (!k) return; const v = e.target.tagName === "SELECT" || e.target.dataset.kind === "text" ? e.target.value : parseFloat(e.target.value); if (typeof v === "number" && !isFinite(v)) return; (S.params[S.strat] ||= {})[k] = v; schedule(); });
 document.querySelectorAll("#dirSeg button").forEach(btn => btn.addEventListener("click", () => { S.dir = btn.dataset.dir; $("#coinMode").value = S.dir === "both" ? "side" : "time"; fillStrategy(); render(); }));
