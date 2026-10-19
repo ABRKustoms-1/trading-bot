@@ -135,6 +135,8 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
 .coin-hist .you { stroke: var(--ink); stroke-width: 2 }
 .coin-hist .you-label { fill: var(--ink); font-weight: 600 }
 .coin-hist .zero { stroke: var(--muted); stroke-dasharray: 3 3 }
+.scope { margin: 0 0 -10px; font-size: 13px; color: var(--ink-2) }
+.scope b { color: var(--ink); font-weight: 600 }
 .rules { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; color: var(--ink-2) }
 .rules b { font-weight: 600; color: var(--ink) }
 .rules .pill { font-family: var(--mono); font-size: 12px; padding: 2px 9px }
@@ -226,6 +228,7 @@ dialog.pine::backdrop { background: rgb(10 14 20 / 0.45) }
   <main class="main">
     <div class="notice" id="notice" hidden></div>
     <div class="rules" id="rules" hidden></div>
+    <p class="scope" id="scope"></p>
     <div class="tiles" id="tiles"></div>
 
     <section class="card">
@@ -614,6 +617,20 @@ function backtest(b, sig, cfg) {
   return { eq, eqLow, held, trades, rules, exposure: bars / Math.max(1, n - 1) };
 }
 
+// Stats for bars i0..i1 of a full run: the backtest still covers the whole test (so indicators and
+// open positions carry in); only the measurement starts at i0, from the equity at that point.
+function windowRun(b, r, i0, i1, capital) {
+  const n = b.c.length, startEq = i0 > 0 ? r.eq[i0 - 1] : capital;
+  const bw = { ...b, c: b.c.subarray(i0, i1 + 1), t: b.t.subarray(i0, i1 + 1), day: b.day.slice(i0, i1 + 1) };
+  const trades = r.trades.filter(t => t.open ? i1 === n - 1 : t.xi >= i0 && t.xi <= i1);
+  let held = 0;
+  for (let i = i0; i <= i1; i++) if (r.held[i]) held++;
+  const days = new Set(trades.filter(t => t.why === "daily").map(t => b.day[t.xi]));
+  const rules = r.rules ? { limitDays: days.size, blownAt: r.rules.blownAt >= i0 && r.rules.blownAt <= i1 ? r.rules.blownAt : -1 } : undefined;
+  const rw = { eq: r.eq.subarray(i0, i1 + 1), eqLow: r.eqLow && r.eqLow.subarray(i0, i1 + 1), trades, rules, exposure: held / (i1 - i0 + 1) };
+  return { rw, st: stats(bw, rw, startEq), startEq };
+}
+
 // Coin-flip test. Replays a strategy's trades through the built-in engine (same costs, account rules,
 // windows and no-trade days) with a coin choosing the side and/or the entry time.
 //   mode "side": same entry and exit bars, coin picks long or short
@@ -901,8 +918,11 @@ function redrawCharts() {
     const { b, cur, bench, cfg } = last, v = viewIdx(b);
     renderZoombar(b, v); renderPrice(b, cur, v); renderEquity(b, cur, bench, cfg, v);
     save();
+    clearTimeout(statsTimer);
+    statsTimer = setTimeout(renderStats, 150);
   });
 }
+let statsTimer = 0;
 $("#ranges").addEventListener("click", e => { const d = e.target.dataset.days; if (d !== undefined) rangeView(+d); });
 $("#zoomIn").addEventListener("click", () => zoomView(0.5));
 $("#zoomOut").addEventListener("click", () => zoomView(2));
@@ -1038,27 +1058,44 @@ function render() {
   }
   const bench = backtest(b, new Int8Array(b.c.length).fill(1), { ...cfg, stop: 0, tp: 0, maxLoss: 0, dayLimit: 0, maxDD: 0, winOn: false, noTradeDays: [] });
 
-  renderTiles(cur.st, cur.r, cfg);
-  let raw = null;
+  let rawRun = null; // same strategy without the account rules, for comparison
   if ((cfg.maxLoss || cfg.dayLimit || cfg.maxDD) && !(strat.intraday && !b.intraday)) {
-    try { raw = runOne(b, strat, P(S.strat), { ...cfg, maxLoss: 0, dayLimit: 0, maxDD: 0 }).st; } catch (e) {}
+    try { rawRun = runOne(b, strat, P(S.strat), { ...cfg, maxLoss: 0, dayLimit: 0, maxDD: 0 }); } catch (e) {}
   }
-  renderRules(b, cur.r, cfg, raw);
-  last = { b, cur, bench, cfg };
+  last = { b, cur, bench, cfg, rawRun };
   const v = viewIdx(b);
   renderZoombar(b, v);
   renderPrice(b, cur, v);
   renderEquity(b, cur, bench, cfg, v);
-  renderCoin();
-  renderCompare(b, cfg);
-  renderYears(b, cur, cfg);
-  renderTrades(b, cur.r);
+  renderStats();
 }
 
-function renderTiles(st, r, cfg) {
+// Everything below the charts measures the range shown on the chart (the zoom / 1D-All buttons).
+function statsWindow() {
+  const v = viewIdx(last.b);
+  return S.view && !v.note ? v : null;
+}
+function renderStats() {
+  if (!last) return;
+  const { b, cur, cfg, rawRun } = last, win = statsWindow(), n = b.c.length;
+  const w = win ? windowRun(b, cur.r, win.i0, win.i1, cfg.capital) : { rw: cur.r, st: cur.st, startEq: cfg.capital };
+  const raw = rawRun ? (win ? windowRun(b, rawRun.r, win.i0, win.i1, cfg.capital).st : rawRun.st) : null;
+  const i0 = win ? win.i0 : 0, i1 = win ? win.i1 : n - 1;
+  $("#scope").innerHTML = win
+    ? `Stats for <b>${when(b, i0)} – ${when(b, i1)}</b>, the range shown on the chart. Click <b>All</b> (or double-click the chart) for the whole test.`
+    : `Stats for the whole test: <b>${when(b, 0)} – ${when(b, n - 1)}</b>. Zoom the chart or use the range buttons to measure part of it.`;
+  renderTiles(w.st, w.rw, cfg, win ? w.startEq : null);
+  renderRules(b, w.rw, cfg, raw);
+  renderCoin();
+  renderCompare(b, cfg, win);
+  renderYears(b, cur, cfg, win);
+  renderTrades(b, w.rw);
+}
+
+function renderTiles(st, r, cfg, startEq) {
   const t = (k, v, s, c = "") => `<div class="tile"><span class="k">${k}</span><span class="v ${c}">${v}</span><span class="s">${s}</span></div>`;
   $("#tiles").innerHTML = [
-    t("Net P&amp;L", usd(st.net, true), `on ${usd(cfg.capital)} start`, cls(st.net)),
+    t("Net P&amp;L", usd(st.net, true), startEq == null ? `on ${usd(cfg.capital)} start` : `from ${usd(startEq)} at range start`, cls(st.net)),
     t("CAGR", pct(st.cagr, true), st.wiped >= 0 ? "account went to zero" : "compound yearly", cls(st.cagr)),
     t("Max drawdown", usd(st.mddUsd), `${pct(st.mdd)} from the high, intrabar`, "neg"),
     t("Sharpe", num(st.sharpe), "daily P&amp;L, annualised"),
@@ -1097,11 +1134,12 @@ function renderRules(b, r, cfg, raw) {
 
 // ---------------------------------------------------------------- coin-flip test (UI)
 let coinState = null;
-const coinKey = () => JSON.stringify([S.strat, P(S.strat), S.datasets[S.ds] && S.datasets[S.ds].name, S.from, S.to, S.dir, cfgNow(), $("#coinMode").value, $("#coinRuns").value]);
+const coinKey = () => JSON.stringify([S.strat, P(S.strat), S.datasets[S.ds] && S.datasets[S.ds].name, S.from, S.to, S.dir, cfgNow(), $("#coinMode").value, $("#coinRuns").value, S.view]);
 async function runCoin() {
   if (!last) return;
   const { b, cur, cfg } = last, btn = $("#coinRun"), out = $("#coinOut");
-  const trades = cur.r.trades.filter(t => t.xi > t.ei);
+  const win = statsWindow();
+  const trades = cur.r.trades.filter(t => t.xi > t.ei && (!win || (t.ei >= win.i0 && t.xi <= win.i1)));
   if (trades.length < 2) { out.innerHTML = `<p class="sub">This strategy has ${trades.length} trade${trades.length === 1 ? "" : "s"} here, too few to test. Widen the date range or pick another strategy.</p>`; return; }
   const mode = $("#coinMode").value, runs = +$("#coinRuns").value, key = coinKey();
   btn.disabled = true;
@@ -1197,31 +1235,33 @@ function renderEquity(b, cur, bench, cfg, v) {
 }
 
 const cmpCache = new Map();
-function renderCompare(b, cfg) {
-  if (cmpCache.size > 400) cmpCache.clear();
+function renderCompare(b, cfg, win) {
+  if (cmpCache.size > 60) cmpCache.clear();
   const base = JSON.stringify([S.datasets[S.ds].name, b.c.length, S.from, S.to, S.dir, cfg]);
   const rows = STRATS.map(s => {
     const name = `<button class="link" type="button" data-load="${esc(s.id)}">${esc(s.name)}</button>`;
     if (s.intraday && !b.intraday) return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="na" colspan="5">Needs intraday bars</td></tr>`;
     const params = s.id === S.strat ? P(s.id) : defaults(s), key = base + s.id + JSON.stringify(params) + (s.code || "");
-    let st = cmpCache.get(key);
-    if (!st) {
-      try { const x = runOne(b, s, params, cfg).st; st = { net: x.net, cagr: x.cagr, mdd: x.mdd, mddUsd: x.mddUsd, pf: x.pf, trades: x.trades }; }
-      catch (e) { st = { error: e.message }; }
-      cmpCache.set(key, st);
+    let hit = cmpCache.get(key);
+    if (!hit) {
+      try { const x = runOne(b, s, params, cfg); hit = { r: x.r, st: x.st }; }
+      catch (e) { hit = { error: e.message }; }
+      cmpCache.set(key, hit);
     }
+    const st = hit.error ? hit : win ? windowRun(b, hit.r, win.i0, win.i1, cfg.capital).st : hit.st;
     if (st.error) return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="na" colspan="5" style="white-space:normal">Script error: ${esc(st.error)}</td></tr>`;
     return `<tr${s.id === S.strat ? ' class="cur"' : ""}><td>${name}</td><td class="${cls(st.net)}">${usd(st.net, true)}</td><td class="${cls(st.cagr)}">${pct(st.cagr, true)}</td><td class="neg">${usd(st.mddUsd)}</td><td>${num(st.pf)}</td><td>${st.trades}</td></tr>`;
   });
-  $("#cmp").innerHTML = `<thead><tr><th>Strategy</th><th>Net P&amp;L</th><th>CAGR</th><th>Max DD</th><th>Profit factor</th><th>Trades</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+  $("#cmp").innerHTML = (win ? `<caption class="sub" style="text-align:left;caption-side:top">Measured over the chart's range: ${when(b, win.i0)} – ${when(b, win.i1)}</caption>` : "") + `<thead><tr><th>Strategy</th><th>Net P&amp;L</th><th>CAGR</th><th>Max DD</th><th>Profit factor</th><th>Trades</th></tr></thead><tbody>${rows.join("")}</tbody>`;
 }
 
-function renderYears(b, cur, cfg) {
-  const eq = cur.r.eq, out = []; let start = cfg.capital, y0 = b.day[0].slice(0, 4);
-  for (let i = 0; i < b.c.length; i++) {
+function renderYears(b, cur, cfg, win) {
+  const i0 = win ? win.i0 : 0, i1 = win ? win.i1 : b.c.length - 1;
+  const eq = cur.r.eq, out = []; let start = i0 > 0 ? eq[i0 - 1] : cfg.capital;
+  for (let i = i0; i <= i1; i++) {
     const y = b.day[i].slice(0, 4);
-    if (i === b.c.length - 1 || b.day[i + 1].slice(0, 4) !== y) {
-      const T = cur.r.trades.filter(t => !t.open && b.day[t.xi].slice(0, 4) === y), w = T.filter(t => t.pnl > 0).length;
+    if (i === i1 || b.day[i + 1].slice(0, 4) !== y) {
+      const T = cur.r.trades.filter(t => !t.open && t.xi >= i0 && t.xi <= i1 && b.day[t.xi].slice(0, 4) === y), w = T.filter(t => t.pnl > 0).length;
       out.push(`<tr><td>${y}</td><td class="${cls(eq[i] - start)}">${usd(eq[i] - start, true)}</td><td class="${cls(eq[i] - start)}">${start > 0 ? pct((eq[i] - start) / start, true) : "–"}</td><td>${T.length}</td><td>${T.length ? pct(w / T.length, false, 0) : "–"}</td></tr>`);
       start = eq[i];
     }
