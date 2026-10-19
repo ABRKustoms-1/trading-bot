@@ -623,11 +623,13 @@ function windowRun(b, r, i0, i1, capital) {
   const n = b.c.length, startEq = i0 > 0 ? r.eq[i0 - 1] : capital;
   const bw = { ...b, c: b.c.subarray(i0, i1 + 1), t: b.t.subarray(i0, i1 + 1), day: b.day.slice(i0, i1 + 1) };
   const trades = r.trades.filter(t => t.open ? i1 === n - 1 : t.xi >= i0 && t.xi <= i1);
+  // trades that were open during the range but closed after it (or are still open): shown, not scored
+  const spanning = r.trades.filter(t => t.ei <= i1 && (t.open ? i1 < n - 1 : t.xi > i1));
   let held = 0;
   for (let i = i0; i <= i1; i++) if (r.held[i]) held++;
   const days = new Set(trades.filter(t => t.why === "daily").map(t => b.day[t.xi]));
   const rules = r.rules ? { limitDays: days.size, blownAt: r.rules.blownAt >= i0 && r.rules.blownAt <= i1 ? r.rules.blownAt : -1 } : undefined;
-  const rw = { eq: r.eq.subarray(i0, i1 + 1), eqLow: r.eqLow && r.eqLow.subarray(i0, i1 + 1), trades, rules, exposure: held / (i1 - i0 + 1) };
+  const rw = { eq: r.eq.subarray(i0, i1 + 1), eqLow: r.eqLow && r.eqLow.subarray(i0, i1 + 1), trades, spanning, rules, exposure: held / (i1 - i0 + 1) };
   return { rw, st: stats(bw, rw, startEq), startEq };
 }
 
@@ -939,10 +941,10 @@ const S = { datasets: [], ds: 0, strat: "z", params: {}, dir: "long", stop: 0, t
 try {
   const saved = JSON.parse(localStorage.getItem("nqlab-settings") || "{}");
   if (!saved.rulesV) delete saved.capital; // older saves predate the $50k account default
-  Object.assign(S, saved, { datasets: [], ds: 0, showAll: false });
+  Object.assign(S, saved, { datasets: [], ds: 0, showAll: false, view: null }); // every visit starts on the whole test
 } catch (e) {}
 const ACCOUNT_FIELDS = ["stop", "tp", "qty", "comm", "slip", "capital", "maxLoss", "dayLimit", "maxDD"];
-const save = () => { try { const { datasets, ds, showAll, ...rest } = S; localStorage.setItem("nqlab-settings", JSON.stringify(rest)); } catch (e) {} };
+const save = () => { try { const { datasets, ds, showAll, view, ...rest } = S; localStorage.setItem("nqlab-settings", JSON.stringify(rest)); } catch (e) {} };
 const P = id => Object.assign(defaults(byId[id]), S.params[id] || {});
 
 const idb = {
@@ -1082,7 +1084,7 @@ function renderStats() {
   const raw = rawRun ? (win ? windowRun(b, rawRun.r, win.i0, win.i1, cfg.capital).st : rawRun.st) : null;
   const i0 = win ? win.i0 : 0, i1 = win ? win.i1 : n - 1;
   $("#scope").innerHTML = win
-    ? `Stats for <b>${when(b, i0)} – ${when(b, i1)}</b>, the range shown on the chart. Click <b>All</b> (or double-click the chart) for the whole test.`
+    ? `Stats for <b>${when(b, i0)} – ${when(b, i1)}</b>, the range shown on the chart. <button class="link" type="button" id="scopeAll">Show whole test</button>`
     : `Stats for the whole test: <b>${when(b, 0)} – ${when(b, n - 1)}</b>. Zoom the chart or use the range buttons to measure part of it.`;
   renderTiles(w.st, w.rw, cfg, win ? w.startEq : null);
   renderRules(b, w.rw, cfg, raw);
@@ -1092,6 +1094,8 @@ function renderStats() {
   renderTrades(b, w.rw);
 }
 
+$("#scope").addEventListener("click", e => { if (e.target.id === "scopeAll") { S.view = null; redrawCharts(); } });
+
 function renderTiles(st, r, cfg, startEq) {
   const t = (k, v, s, c = "") => `<div class="tile"><span class="k">${k}</span><span class="v ${c}">${v}</span><span class="s">${s}</span></div>`;
   $("#tiles").innerHTML = [
@@ -1099,7 +1103,11 @@ function renderTiles(st, r, cfg, startEq) {
     t("CAGR", pct(st.cagr, true), st.wiped >= 0 ? "account went to zero" : "compound yearly", cls(st.cagr)),
     t("Max drawdown", usd(st.mddUsd), `${pct(st.mdd)} from the high, intrabar`, "neg"),
     t("Sharpe", num(st.sharpe), "daily P&amp;L, annualised"),
-    t("Trades", st.trades.toLocaleString("en-US"), st.openTrades ? `closed; 1 still open (${usd(st.openPnl, true)})` : `in market ${pct(st.exposure, false, 0)} of bars`),
+    t("Trades", st.trades.toLocaleString("en-US"),
+      r.spanning && r.spanning.length ? `closed in range; ${r.spanning.length} more open through its end`
+      : st.openTrades ? `closed; 1 still open (${usd(st.openPnl, true)})`
+      : !st.trades && startEq != null ? `none closed in this range; in market ${pct(st.exposure, false, 0)} of it`
+      : `in market ${pct(st.exposure, false, 0)} of bars`),
     t("Win rate", pct(st.win, false, 0), `avg win ${usd(st.avgW)} · loss ${usd(st.avgL)}`),
     t("Profit factor", num(st.pf), `${usd(st.gw)} won / ${usd(st.gl)} lost`),
     t("Avg trade", usd(st.avg, true), "after costs", cls(st.avg)),
@@ -1270,17 +1278,23 @@ function renderYears(b, cur, cfg, win) {
 }
 
 function renderTrades(b, r) {
-  const T = r.trades.slice().reverse(), lim = S.showAll ? T.length : 100;
-  $("#tradeSub").textContent = T.length ? `${T.length.toLocaleString("en-US")} trades, newest first. P&L is after commission and slippage.` : "No trades with these settings.";
+  const span = r.spanning || [], T = [...span.map(t => ({ ...t, spans: true })), ...r.trades.slice().reverse()], lim = S.showAll ? T.length : 100;
+  $("#tradeSub").textContent = T.length
+    ? `${r.trades.length.toLocaleString("en-US")} trades${statsWindow() ? " closed in this range" : ""}, newest first${span.length ? `, plus ${span.length} still open at the range's end (not counted in the stats)` : ""}. P&L is after commission and slippage.`
+    : statsWindow() ? "No trades in this range. Use Show whole test above to see them all." : "No trades with these settings. Check the account rules, trading windows and no-trade days on the left.";
   const why = { stop: "stop", target: "target", signal: "signal", open: "still open", close: "close", reverse: "reversal", session: "session end", window: "window end", risk: "max loss/trade", daily: "daily limit", maxdd: "max drawdown" };
   $("#trades").innerHTML = `<thead><tr><th>Side</th><th>Entry</th><th>Entry px</th><th>Exit</th><th>Exit px</th><th>Bars</th><th>Exit by</th><th>P&amp;L</th></tr></thead><tbody>` +
-    T.slice(0, lim).map(t => `<tr><td><span class="pill" style="color:var(${t.side > 0 ? "--long" : "--short"})">${t.side > 0 ? "Long" : "Short"}</span></td><td>${when(b, t.ei)}</td><td>${px(t.ep)}</td><td>${when(b, t.xi)}</td><td>${px(t.xp)}</td><td>${t.xi - t.ei}</td><td>${why[t.why] || esc(t.why)}</td><td class="${cls(t.pnl)}">${usd(t.pnl, true)}</td></tr>`).join("") + "</tbody>";
+    T.slice(0, lim).map(t => `<tr><td><span class="pill" style="color:var(${t.side > 0 ? "--long" : "--short"})">${t.side > 0 ? "Long" : "Short"}</span></td><td>${when(b, t.ei)}</td><td>${px(t.ep)}</td><td>${when(b, t.xi)}</td><td>${px(t.xp)}</td><td>${t.xi - t.ei}</td><td>${t.spans ? "after this range" : why[t.why] || esc(t.why)}</td><td class="${cls(t.pnl)}">${usd(t.pnl, true)}</td></tr>`).join("") + "</tbody>";
   $("#moreTrades").hidden = T.length <= lim;
   $("#moreTrades").textContent = `Show all ${T.length.toLocaleString("en-US")} trades`;
 }
 
 // ---------------------------------------------------------------- events
-$("#ds").addEventListener("change", e => { S.ds = +e.target.value; setRange(); fillStrategy(); render(); });
+$("#ds").addEventListener("change", e => {
+  S.ds = +e.target.value;
+  if (!S.datasets[S.ds].intraday) S.view = null; // a zoom carries from daily into intraday, not back
+  setRange(); fillStrategy(); render();
+});
 $("#from").addEventListener("change", e => { S.from = e.target.value; schedule(); });
 $("#to").addEventListener("change", e => { S.to = e.target.value; schedule(); });
 $("#strat").addEventListener("change", e => { S.strat = e.target.value; S.showAll = false; fillStrategy(); render(); });
